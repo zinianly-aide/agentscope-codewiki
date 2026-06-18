@@ -25,6 +25,7 @@
         <module>codewiki-retriever</module>
         <module>codewiki-agent</module>
         <module>codewiki-dify</module>
+        <module>codewiki-cli</module>
         <module>codewiki-web</module>
     </modules>
 

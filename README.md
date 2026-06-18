@@ -42,7 +42,27 @@ code at scale.
 | **codewiki-retriever** | Semantic and structural code search |
 | **codewiki-agent** | AgentScope-driven multi-agent pipeline orchestration |
 | **codewiki-dify** | Dify platform integration plugin |
+| **codewiki-cli** | End-to-end local analysis command for acceptance runs |
 | **codewiki-web** | Spring Boot web API and frontend |
+
+## Quick Start
+
+Run an end-to-end local acceptance analysis and generate Markdown wiki pages:
+
+```bash
+mvn -pl codewiki-cli -am test
+java -cp codewiki-cli/target/classes:codewiki-core/target/classes:codewiki-parser/target/classes:codewiki-retriever/target/classes:codewiki-agent/target/classes:codewiki-dify/target/classes \
+  com.agentscope.codewiki.cli.CodewikiCli analyze --repo /path/to/repo --output ./wiki --mock
+```
+
+The command scans the Git repository, parses supported code symbols, generates or reuses a local summary cache, builds retrieval context, runs the AgentScope workflow path in mock mode, and writes `overview.md`, `architecture.md`, `modules.md`, `dataflow.md`, and `review.md`.
+
+Useful flags:
+
+- `--dry-run` executes the pipeline and writes the run log without writing wiki pages or summary cache.
+- `--mock` forces local mock workflow output and does not call Dify.
+- `--dify` calls Dify and requires `DIFY_BASE_URL` plus `DIFY_API_KEY`.
+- `--log ./run.log` writes a detailed run log to a custom path.
 
 ## Tech Stack
 
