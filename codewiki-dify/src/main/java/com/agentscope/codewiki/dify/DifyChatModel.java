@@ -1,6 +1,7 @@
 package com.agentscope.codewiki.dify;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -33,7 +34,13 @@ public class DifyChatModel {
 
     /** Create a chat model with an existing conversation. */
     public DifyChatModel(String baseUrl, String apiKey, String user, String conversationId) {
-        this.client = new DifyClient(baseUrl, apiKey);
+        this(baseUrl, apiKey, user, conversationId, Duration.ofSeconds(60));
+    }
+
+    /** Create a chat model with an existing conversation and custom timeout. */
+    public DifyChatModel(
+            String baseUrl, String apiKey, String user, String conversationId, Duration timeout) {
+        this.client = new DifyClient(baseUrl, apiKey, timeout);
         this.user = user;
         this.conversationId = conversationId;
     }

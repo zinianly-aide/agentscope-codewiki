@@ -61,8 +61,42 @@ Useful flags:
 
 - `--dry-run` executes the pipeline and writes the run log without writing wiki pages or summary cache.
 - `--mock` forces local mock workflow output and does not call Dify.
-- `--dify` calls Dify and requires `DIFY_BASE_URL` plus `DIFY_API_KEY`.
+- `--dify` calls Dify. If Dify fails, the CLI logs the fallback reason and continues with the local mock analyzer.
 - `--log ./run.log` writes a detailed run log to a custom path.
+- `--max-context-tokens 32000` enables the context budget guard and automatic trimming.
+- `--session-id <id>` carries a Dify conversation/session id into the runtime context.
+
+Real Dify example:
+
+```bash
+export DIFY_BASE_URL=https://api.dify.ai
+export DIFY_API_KEY=app-xxxxxxxx
+export DIFY_USER=codewiki-local
+export CODEWIKI_MAX_CONTEXT_TOKENS=32000
+
+java -cp codewiki-cli/target/classes:codewiki-core/target/classes:codewiki-parser/target/classes:codewiki-retriever/target/classes:codewiki-agent/target/classes:codewiki-dify/target/classes \
+  com.agentscope.codewiki.cli.CodewikiCli analyze \
+  --repo /path/to/repo \
+  --output ./wiki \
+  --dify \
+  --dify-timeout-seconds 60 \
+  --session-id local-acceptance
+```
+
+CLI arguments override environment variables, so this is also valid:
+
+```bash
+com.agentscope.codewiki.cli.CodewikiCli analyze \
+  --repo /path/to/repo \
+  --output ./wiki \
+  --dify \
+  --dify-base-url https://api.dify.ai \
+  --dify-api-key app-xxxxxxxx \
+  --dify-user codewiki-local \
+  --max-context-tokens 32000
+```
+
+For 32k-context Dify apps, use `CODEWIKI_MAX_CONTEXT_TOKENS=32000` or `--max-context-tokens 32000`. The CLI logs token estimates for `repo_summary`, `module_summaries`, `retrieved_code_context`, `dependency_graph`, `memory_summary`, and `total`; when the budget is exceeded it preserves the user question, high-relevance code, file paths/line numbers, and module summaries while trimming low-relevance code, long comments, duplicate/oversized snippets, and old memory first.
 
 ## Tech Stack
 

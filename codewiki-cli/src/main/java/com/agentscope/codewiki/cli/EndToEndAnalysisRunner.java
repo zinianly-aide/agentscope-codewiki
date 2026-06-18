@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -53,9 +54,13 @@ final class EndToEndAnalysisRunner {
 
         logger.step("4. building retrieval context");
         ContextPack contextPack = buildRetrievalContext(sourceFiles);
+        ContextBudgetReport budgetReport =
+                ContextBudgetReport.from(
+                        summary, contextPack, options.maxContextTokens(), options.sessionId());
+        logger.step(budgetReport.logLines());
 
         logger.step("5. invoking AgentScope workflow");
-        String workflowResult = invokeWorkflow(summary, contextPack, options.mockOnly());
+        String workflowResult = invokeWorkflow(budgetReport, options, logger);
         summary.setSummary(summary.getSummary() + " " + workflowResult);
 
         logger.step("6. generating wiki pages");
@@ -193,28 +198,39 @@ final class EndToEndAnalysisRunner {
     }
 
     private String invokeWorkflow(
-            RepositorySummary summary, ContextPack contextPack, boolean mockOnly)
-            throws IOException {
-        if (mockOnly) {
-            return "AgentScope mock workflow prepared "
-                    + contextPack.relevantCode().size()
-                    + " code contexts and "
-                    + contextPack.relevantSummaries().size()
-                    + " summary contexts without calling Dify.";
+            ContextBudgetReport budgetReport, AnalysisCommandOptions options, RunLogger logger) {
+        if (options.mockOnly()) {
+            return mockWorkflowResult(budgetReport, "mock mode enabled");
         }
-        String baseUrl = System.getenv("DIFY_BASE_URL");
-        String apiKey = System.getenv("DIFY_API_KEY");
-        if (baseUrl == null || baseUrl.isBlank() || apiKey == null || apiKey.isBlank()) {
-            throw new IllegalArgumentException(
-                    "--dify requires DIFY_BASE_URL and DIFY_API_KEY environment variables");
+        if (options.difyBaseUrl() == null || options.difyApiKey() == null) {
+            String reason = "missing Dify base URL or API key";
+            logger.step("Dify fallback reason: " + reason);
+            return mockWorkflowResult(budgetReport, reason);
         }
-        DifyChatModel model = new DifyChatModel(baseUrl, apiKey, "codewiki-cli");
-        return model.chat(
-                "Run AgentScope CodeWiki workflow for repository "
-                        + summary.getName()
-                        + " using "
-                        + contextPack.relevantCode().size()
-                        + " retrieved code contexts.");
+        try {
+            DifyChatModel model =
+                    new DifyChatModel(
+                            options.difyBaseUrl(),
+                            options.difyApiKey(),
+                            options.difyUser(),
+                            options.sessionId(),
+                            Duration.ofSeconds(options.difyTimeoutSeconds()));
+            return model.chat(budgetReport.prompt(), budgetReport.asDifyInputs()).getAnswer();
+        } catch (RuntimeException | IOException exception) {
+            String reason = exception.getClass().getSimpleName() + ": " + exception.getMessage();
+            logger.step("Dify fallback reason: " + reason);
+            return mockWorkflowResult(budgetReport, reason);
+        }
+    }
+
+    private String mockWorkflowResult(ContextBudgetReport budgetReport, String reason) {
+        return "AgentScope mock analyzer used (reason: "
+                + reason
+                + "). Budget total tokens="
+                + budgetReport.totalTokens()
+                + ", trimmed="
+                + budgetReport.trimmed()
+                + ".";
     }
 
     private void saveSummary(Path outputDirectory, RepositorySummary summary) throws IOException {
@@ -292,7 +308,7 @@ final class EndToEndAnalysisRunner {
                     .module(repo.getFileName().toString())
                     .path(relative.toString())
                     .language(language(file))
-                    .content(read(file))
+                    .content(annotatedContent(relative, symbols, read(file)))
                     .summary("Parsed symbols: " + symbolNames())
                     .dependencies(List.of())
                     .build();
@@ -316,6 +332,23 @@ final class EndToEndAnalysisRunner {
             summary.setSummary(
                     "Parsed symbol " + symbol.getName() + " of type " + symbol.getType() + ".");
             return summary;
+        }
+
+        private static String annotatedContent(
+                Path relative, List<CodeSymbol> symbols, String content) {
+            StringBuilder builder = new StringBuilder();
+            builder.append("file=").append(relative).append(System.lineSeparator());
+            for (CodeSymbol symbol : symbols) {
+                builder.append("symbol=")
+                        .append(symbol.getName())
+                        .append(" lines=")
+                        .append(symbol.getStartLine())
+                        .append("-")
+                        .append(symbol.getEndLine())
+                        .append(System.lineSeparator());
+            }
+            builder.append(content);
+            return builder.toString();
         }
 
         private static String language(Path file) {

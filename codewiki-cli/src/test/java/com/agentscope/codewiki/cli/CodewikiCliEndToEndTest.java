@@ -76,6 +76,38 @@ class CodewikiCliEndToEndTest {
         assertTrue(Files.readString(log).contains("dry-run enabled"));
     }
 
+    @Test
+    void difyFailureFallsBackToMockAnalyzerWithoutFailingCli() throws Exception {
+        Path repo = copyFixtureRepository();
+        initGitRepository(repo);
+        Path output = tempDir.resolve("dify-fallback-wiki");
+        Path log = tempDir.resolve("dify-fallback.log");
+
+        int exitCode =
+                new CodewikiCli()
+                        .execute(
+                                new String[] {
+                                    "analyze",
+                                    "--repo",
+                                    repo.toString(),
+                                    "--output",
+                                    output.toString(),
+                                    "--dify",
+                                    "--dify-base-url",
+                                    "http://127.0.0.1:1",
+                                    "--dify-api-key",
+                                    "test-key",
+                                    "--dify-timeout-seconds",
+                                    "1",
+                                    "--log",
+                                    log.toString()
+                                });
+
+        assertEquals(0, exitCode);
+        assertTrue(Files.exists(output.resolve("overview.md")));
+        assertTrue(Files.readString(log).contains("Dify fallback reason:"));
+    }
+
     private Path copyFixtureRepository() throws IOException {
         Path source = Path.of("src/test/resources/fixtures/small-repo");
         Path target = tempDir.resolve("small-repo");

@@ -21,6 +21,7 @@ public class DifyClient {
     private final HttpClient httpClient;
     private final String baseUrl;
     private final String apiKey;
+    private final Duration timeout;
 
     /**
      * Create a Dify API client.
@@ -29,13 +30,24 @@ public class DifyClient {
      * @param apiKey API key from Dify app settings
      */
     public DifyClient(String baseUrl, String apiKey) {
-        this(baseUrl, apiKey, HttpClient.newBuilder().connectTimeout(DEFAULT_TIMEOUT).build());
+        this(baseUrl, apiKey, DEFAULT_TIMEOUT);
+    }
+
+    /** Create a Dify API client with a custom request timeout. */
+    public DifyClient(String baseUrl, String apiKey, Duration timeout) {
+        this(baseUrl, apiKey, timeout, HttpClient.newBuilder().connectTimeout(timeout).build());
     }
 
     /** Constructor for testing — inject a custom HttpClient. */
     DifyClient(String baseUrl, String apiKey, HttpClient httpClient) {
+        this(baseUrl, apiKey, DEFAULT_TIMEOUT, httpClient);
+    }
+
+    /** Constructor for testing — inject a custom timeout and HttpClient. */
+    DifyClient(String baseUrl, String apiKey, Duration timeout, HttpClient httpClient) {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.apiKey = apiKey;
+        this.timeout = timeout;
         this.httpClient = httpClient;
     }
 
@@ -55,7 +67,7 @@ public class DifyClient {
                             .uri(URI.create(baseUrl + "/v1/chat-messages"))
                             .header("Authorization", "Bearer " + apiKey)
                             .header("Content-Type", "application/json")
-                            .timeout(DEFAULT_TIMEOUT)
+                            .timeout(timeout)
                             .POST(HttpRequest.BodyPublishers.ofString(body))
                             .build();
 

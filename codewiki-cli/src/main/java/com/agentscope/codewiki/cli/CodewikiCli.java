@@ -28,6 +28,8 @@ public class CodewikiCli {
     private void printUsage() {
         System.err.println(
                 "Usage: codewiki analyze --repo /path/to/repo --output ./wiki "
-                        + "[--dry-run] [--mock] [--log ./run.log]");
+                        + "[--dry-run] [--mock|--dify] [--log ./run.log] "
+                        + "[--dify-base-url URL] [--dify-api-key KEY] [--dify-user USER] "
+                        + "[--dify-timeout-seconds N] [--max-context-tokens N] [--session-id ID]");
     }
 }
