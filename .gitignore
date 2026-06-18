@@ -21,3 +21,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Tree-sitter bridge dependencies
+codewiki-parser/src/main/resources/tree-sitter-bridge/node_modules/
