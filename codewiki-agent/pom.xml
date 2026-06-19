@@ -24,6 +24,16 @@
             <artifactId>codewiki-indexer</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.agentscope</groupId>
+            <artifactId>codewiki-retriever</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.agentscope</groupId>
+            <artifactId>codewiki-dify</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

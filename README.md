@@ -98,6 +98,36 @@ Supported analysis modes:
 - Module impact: changed module to dependent module chains.
 - Risk calculation: `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL` based on impacted node count, affected module count, and call-chain depth.
 
+### AI Diff Review
+
+`codewiki-agent` includes an AI Diff Review Engine that turns `git diff`, changed files, and `impact-report.json` into `diff-review.md`. The engine extracts changed symbols from added diff lines, reuses `ImpactAnalyzer`/`ImpactReport` for downstream risk context, retrieves related code with `HybridRetriever`, builds a `ContextPack`, applies a context-budget guard, and then runs either local mock review logic or `DifyChatModel`.
+
+Inputs:
+
+- `git diff` text
+- changed file paths
+- `impact-report.json` / `ImpactReport`
+
+Output sections in `diff-review.md`:
+
+- `# Summary`
+- `# Changed Files`
+- `# Impact Analysis`
+- `# Potential Risks`
+- `# Code Quality Issues`
+- `# Security Concerns`
+- `# Performance Concerns`
+- `# Suggested Tests`
+- `# Suggested Refactors`
+- `# Review Evidence`
+
+Review findings support severities `INFO`, `LOW`, `MEDIUM`, `HIGH`, and `CRITICAL`. Each finding can cite file path, class name, method name, and review evidence so reviewers can trace the recommendation back to the diff, impact analysis, retrieved `ContextPack`, or Dify response.
+
+Supported modes:
+
+- Mock mode: `DiffReviewAgent.mockMode(corpus, maxContextTokens)` performs deterministic local review and is suitable for tests/offline runs.
+- Dify mode: `DiffReviewAgent.difyMode(corpus, difyChatModel, maxContextTokens)` sends a budgeted prompt to `DifyChatModel` and records model evidence in the report.
+
 Useful flags:
 
 - `--dry-run` executes the pipeline and writes the run log without writing wiki pages or summary cache.
