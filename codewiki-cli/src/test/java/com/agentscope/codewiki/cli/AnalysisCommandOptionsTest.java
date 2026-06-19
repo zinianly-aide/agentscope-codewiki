@@ -2,76 +2,69 @@ package com.agentscope.codewiki.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.agentscope.codewiki.agent.WikiPage;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-/** Tests for CLI/runtime configuration loading. */
+/** Tests for CodeWiki analysis command option parsing. */
 class AnalysisCommandOptionsTest {
 
     @Test
-    void loadsDifyRuntimeConfigFromEnvironment() {
+    void shouldDefaultToIncrementalWikiWithAllMermaidPages() {
         AnalysisCommandOptions options =
                 AnalysisCommandOptions.parse(
-                        new String[] {"analyze", "--repo", "/repo", "--output", "wiki", "--dify"},
-                        Map.of(
-                                "DIFY_BASE_URL",
-                                "https://dify.example",
-                                "DIFY_API_KEY",
-                                "env-key",
-                                "DIFY_USER",
-                                "env-user",
-                                "CODEWIKI_MAX_CONTEXT_TOKENS",
-                                "12000"));
+                        new String[] {"analyze", "--repo", ".", "--output", "wiki"}, Map.of());
 
-        assertTrue(options.difyEnabled());
-        assertFalse(options.mockOnly());
-        assertEquals("https://dify.example", options.difyBaseUrl());
-        assertEquals("env-key", options.difyApiKey());
-        assertEquals("env-user", options.difyUser());
-        assertEquals(12000, options.maxContextTokens());
+        assertTrue(options.wikiGenerationOptions().isIncremental());
+        assertTrue(options.wikiGenerationOptions().isMermaidEnabled());
+        assertEquals(EnumSet.allOf(WikiPage.class), options.wikiGenerationOptions().getPages());
     }
 
     @Test
-    void cliArgumentsOverrideEnvironmentConfig() {
+    void shouldParseSinglePageFullRegenerationWithoutMermaid() {
         AnalysisCommandOptions options =
                 AnalysisCommandOptions.parse(
                         new String[] {
                             "analyze",
                             "--repo",
-                            "/repo",
+                            ".",
                             "--output",
                             "wiki",
-                            "--dify",
-                            "--dify-base-url",
-                            "https://cli.example",
-                            "--dify-api-key",
-                            "cli-key",
-                            "--dify-user",
-                            "cli-user",
-                            "--dify-timeout-seconds",
-                            "7",
-                            "--max-context-tokens",
-                            "4096",
-                            "--session-id",
-                            "session-123"
+                            "--wiki-full",
+                            "--wiki-page",
+                            "dataflow.md",
+                            "--wiki-no-mermaid"
                         },
-                        Map.of(
-                                "DIFY_BASE_URL",
-                                "https://env.example",
-                                "DIFY_API_KEY",
-                                "env-key",
-                                "DIFY_USER",
-                                "env-user",
-                                "CODEWIKI_MAX_CONTEXT_TOKENS",
-                                "12000"));
+                        Map.of());
 
-        assertEquals("https://cli.example", options.difyBaseUrl());
-        assertEquals("cli-key", options.difyApiKey());
-        assertEquals("cli-user", options.difyUser());
-        assertEquals(7, options.difyTimeoutSeconds());
-        assertEquals(4096, options.maxContextTokens());
-        assertEquals("session-123", options.sessionId());
+        assertFalse(options.wikiGenerationOptions().isIncremental());
+        assertFalse(options.wikiGenerationOptions().isMermaidEnabled());
+        assertEquals(Set.of(WikiPage.DATAFLOW), options.wikiGenerationOptions().getPages());
+    }
+
+    @Test
+    void shouldRejectUnknownWikiPage() {
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () ->
+                                AnalysisCommandOptions.parse(
+                                        new String[] {
+                                            "analyze",
+                                            "--repo",
+                                            ".",
+                                            "--output",
+                                            "wiki",
+                                            "--wiki-page",
+                                            "unknown"
+                                        },
+                                        Map.of()));
+
+        assertTrue(exception.getMessage().contains("Unknown wiki page"));
     }
 }

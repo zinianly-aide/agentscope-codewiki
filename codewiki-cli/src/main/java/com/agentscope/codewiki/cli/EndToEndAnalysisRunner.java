@@ -1,7 +1,6 @@
 package com.agentscope.codewiki.cli;
 
 import com.agentscope.codewiki.agent.RepositoryWikiGenerator;
-import com.agentscope.codewiki.agent.WikiGenerationOptions;
 import com.agentscope.codewiki.agent.WikiGenerationResult;
 import com.agentscope.codewiki.core.ClassSummary;
 import com.agentscope.codewiki.core.FileSummary;
@@ -74,7 +73,7 @@ final class EndToEndAnalysisRunner {
                             .generate(
                                     summary,
                                     options.outputDirectory(),
-                                    WikiGenerationOptions.incremental());
+                                    options.wikiGenerationOptions());
             logger.step(
                     "wiki pages written="
                             + result.writtenCount()

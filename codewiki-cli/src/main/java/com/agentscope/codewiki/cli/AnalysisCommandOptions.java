@@ -1,7 +1,10 @@
 package com.agentscope.codewiki.cli;
 
+import com.agentscope.codewiki.agent.WikiGenerationOptions;
+import com.agentscope.codewiki.agent.WikiPage;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.Map;
 
 /** Parsed options for {@code codewiki analyze}. */
@@ -23,6 +26,7 @@ public final class AnalysisCommandOptions {
     private final int difyTimeoutSeconds;
     private final int maxContextTokens;
     private final String sessionId;
+    private final WikiGenerationOptions wikiGenerationOptions;
 
     private AnalysisCommandOptions(
             Path repoPath,
@@ -36,7 +40,8 @@ public final class AnalysisCommandOptions {
             String difyUser,
             int difyTimeoutSeconds,
             int maxContextTokens,
-            String sessionId) {
+            String sessionId,
+            WikiGenerationOptions wikiGenerationOptions) {
         this.repoPath = repoPath;
         this.outputDirectory = outputDirectory;
         this.dryRun = dryRun;
@@ -49,6 +54,10 @@ public final class AnalysisCommandOptions {
         this.difyTimeoutSeconds = difyTimeoutSeconds;
         this.maxContextTokens = maxContextTokens;
         this.sessionId = sessionId;
+        this.wikiGenerationOptions =
+                wikiGenerationOptions == null
+                        ? WikiGenerationOptions.incremental()
+                        : wikiGenerationOptions;
     }
 
     public static AnalysisCommandOptions parse(String[] args) {
@@ -75,6 +84,9 @@ public final class AnalysisCommandOptions {
                         DEFAULT_MAX_CONTEXT_TOKENS,
                         "CODEWIKI_MAX_CONTEXT_TOKENS");
         String sessionId = null;
+        boolean wikiIncremental = true;
+        boolean mermaidEnabled = true;
+        EnumSet<WikiPage> wikiPages = EnumSet.allOf(WikiPage.class);
         for (int index = 1; index < args.length; index++) {
             String arg = args[index];
             switch (arg) {
@@ -100,6 +112,11 @@ public final class AnalysisCommandOptions {
                                         DEFAULT_MAX_CONTEXT_TOKENS,
                                         arg);
                 case "--session-id" -> sessionId = requireValue(args, ++index, arg);
+                case "--wiki-incremental" -> wikiIncremental = true;
+                case "--wiki-full" -> wikiIncremental = false;
+                case "--wiki-page" ->
+                        wikiPages = EnumSet.of(parseWikiPage(requireValue(args, ++index, arg)));
+                case "--wiki-no-mermaid" -> mermaidEnabled = false;
                 default -> throw new IllegalArgumentException("Unknown argument: " + arg);
             }
         }
@@ -115,6 +132,12 @@ public final class AnalysisCommandOptions {
         boolean effectiveDify = dify;
         boolean effectiveMock = mock || !effectiveDify;
         Path effectiveLog = log == null ? output.resolve("codewiki-run.log") : log;
+        WikiGenerationOptions wikiOptions =
+                WikiGenerationOptions.builder()
+                        .incremental(wikiIncremental)
+                        .mermaidEnabled(mermaidEnabled)
+                        .pages(wikiPages)
+                        .build();
         return new AnalysisCommandOptions(
                 repo,
                 output,
@@ -127,7 +150,8 @@ public final class AnalysisCommandOptions {
                 textOrDefault(difyUser, DEFAULT_DIFY_USER),
                 difyTimeoutSeconds,
                 maxContextTokens,
-                text(sessionId));
+                text(sessionId),
+                wikiOptions);
     }
 
     private static String requireValue(String[] args, int index, String flag) {
@@ -135,6 +159,16 @@ public final class AnalysisCommandOptions {
             throw new IllegalArgumentException("Missing value for " + flag);
         }
         return args[index];
+    }
+
+    private static WikiPage parseWikiPage(String value) {
+        return WikiPage.fromInput(value)
+                .orElseThrow(
+                        () ->
+                                new IllegalArgumentException(
+                                        "Unknown wiki page: "
+                                                + value
+                                                + " (expected overview, architecture, modules, dataflow, or review)"));
     }
 
     private static boolean isFlag(String value) {
@@ -213,5 +247,9 @@ public final class AnalysisCommandOptions {
 
     public String sessionId() {
         return sessionId;
+    }
+
+    public WikiGenerationOptions wikiGenerationOptions() {
+        return wikiGenerationOptions;
     }
 }

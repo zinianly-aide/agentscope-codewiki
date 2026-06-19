@@ -24,4 +24,24 @@ public enum WikiPage {
     public static Optional<WikiPage> fromFileName(String fileName) {
         return Arrays.stream(values()).filter(page -> page.fileName.equals(fileName)).findFirst();
     }
+
+    public static Optional<WikiPage> fromInput(String value) {
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+        String normalized = value.trim().toLowerCase().replace('_', '-');
+        return Arrays.stream(values())
+                .filter(page -> page.fileName.equals(normalized))
+                .findFirst()
+                .or(
+                        () ->
+                                Arrays.stream(values())
+                                        .filter(
+                                                page ->
+                                                        page.name()
+                                                                .toLowerCase()
+                                                                .replace('_', '-')
+                                                                .equals(normalized))
+                                        .findFirst());
+    }
 }
