@@ -37,8 +37,8 @@ code at scale.
 | Module | Purpose |
 |--------|---------|
 | **codewiki-core** | Shared domain models, interfaces, and utilities |
-| **codewiki-parser** | AST parsing, symbol extraction, and code graph construction |
-| **codewiki-indexer** | Embedding generation and vector index management |
+| **codewiki-parser** | AST parsing and symbol extraction |
+| **codewiki-indexer** | Code knowledge graph construction and index management |
 | **codewiki-retriever** | Semantic and structural code search |
 | **codewiki-agent** | AgentScope-driven multi-agent pipeline orchestration |
 | **codewiki-dify** | Dify platform integration plugin |
@@ -56,6 +56,19 @@ java -cp codewiki-cli/target/classes:codewiki-core/target/classes:codewiki-parse
 ```
 
 The command scans the Git repository, parses supported code symbols, generates or reuses a local summary cache, builds retrieval context, runs the AgentScope workflow path in mock mode, and writes `overview.md`, `architecture.md`, `modules.md`, `dataflow.md`, and `review.md`.
+
+### Code Graph
+
+`codewiki-indexer` builds a code knowledge graph from the existing symbol extraction output. It reuses `CodeSymbol`, `RepositoryScanner`, and `TreeSitterSymbolExtractor` instead of introducing a second source parser. The graph serializes to `graph.json` with this top-level shape:
+
+```json
+{
+  "nodes": [],
+  "edges": []
+}
+```
+
+Supported source languages are Java, TypeScript, and Python. Supported relationships are `CALLS`, `IMPORTS`, `IMPLEMENTS`, `EXTENDS`, `USES`, and `REFERENCES`. `CodeGraphQueryService` supports symbol-to-related-symbol lookup, file-to-impacted-file lookup, and module dependency-chain traversal.
 
 Useful flags:
 
