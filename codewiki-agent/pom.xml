@@ -19,6 +19,11 @@
             <artifactId>codewiki-core</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.agentscope</groupId>
+            <artifactId>codewiki-indexer</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

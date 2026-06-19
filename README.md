@@ -70,6 +70,34 @@ The command scans the Git repository, parses supported code symbols, generates o
 
 Supported source languages are Java, TypeScript, and Python. Supported relationships are `CALLS`, `IMPORTS`, `IMPLEMENTS`, `EXTENDS`, `USES`, and `REFERENCES`. `CodeGraphQueryService` supports symbol-to-related-symbol lookup, file-to-impacted-file lookup, and module dependency-chain traversal.
 
+### Impact Analysis
+
+`codewiki-indexer` includes a deterministic `ImpactAnalyzer` that reuses `CodeGraph`, `CodeGraphQueryService`, and incremental-indexing inputs to compute downstream effects without an LLM, diff review, or web UI. `codewiki-agent` exposes the same engine through `ImpactAnalysisAgent` for agent pipeline orchestration.
+
+Inputs:
+
+- changed files, including paths from `IncrementalReport`
+- changed symbols, such as `UserService.login` or `login`
+
+Output is written as `impact-report.json` with this top-level shape:
+
+```json
+{
+  "changedSymbols": [],
+  "directImpacts": [],
+  "transitiveImpacts": [],
+  "riskLevel": "LOW",
+  "affectedModules": []
+}
+```
+
+Supported analysis modes:
+
+- Symbol impact: changed symbols to direct and transitive callers/dependents.
+- File impact: changed file to dependent files.
+- Module impact: changed module to dependent module chains.
+- Risk calculation: `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL` based on impacted node count, affected module count, and call-chain depth.
+
 Useful flags:
 
 - `--dry-run` executes the pipeline and writes the run log without writing wiki pages or summary cache.
