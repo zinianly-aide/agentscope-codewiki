@@ -12,6 +12,11 @@ public class CodewikiCli {
 
     public int execute(String[] args) {
         try {
+            if (args != null && args.length > 0 && "benchmark".equals(args[0])) {
+                BenchmarkCommandOptions options = BenchmarkCommandOptions.parse(args);
+                new BenchmarkRunner().run(options.repoPath(), options.outputDirectory());
+                return 0;
+            }
             AnalysisCommandOptions options = AnalysisCommandOptions.parse(args);
             new EndToEndAnalysisRunner().run(options);
             return 0;
@@ -30,6 +35,7 @@ public class CodewikiCli {
                 "Usage: codewiki analyze --repo /path/to/repo --output ./wiki "
                         + "[--dry-run] [--mock|--dify] [--log ./run.log] "
                         + "[--dify-base-url URL] [--dify-api-key KEY] [--dify-user USER] "
-                        + "[--dify-timeout-seconds N] [--max-context-tokens N] [--session-id ID]");
+                        + "[--dify-timeout-seconds N] [--max-context-tokens N] [--session-id ID]\n"
+                        + "       codewiki benchmark --repo /path/to/repo --output ./benchmark");
     }
 }

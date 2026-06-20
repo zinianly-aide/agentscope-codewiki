@@ -128,6 +128,21 @@ Supported modes:
 - Mock mode: `DiffReviewAgent.mockMode(corpus, maxContextTokens)` performs deterministic local review and is suitable for tests/offline runs.
 - Dify mode: `DiffReviewAgent.difyMode(corpus, difyChatModel, maxContextTokens)` sends a budgeted prompt to `DifyChatModel` and records model evidence in the report.
 
+### Benchmark
+
+`codewiki-cli` includes a benchmark/profiling command for real repository paths. It runs the existing scan, parse, graph build, retrieval/index, impact analysis, mock diff review, and wiki generation paths for timing only, then writes `benchmark-report.md`.
+
+Example:
+
+```bash
+java -cp codewiki-cli/target/classes:codewiki-core/target/classes:codewiki-parser/target/classes:codewiki-indexer/target/classes:codewiki-retriever/target/classes:codewiki-agent/target/classes:codewiki-dify/target/classes \
+  com.agentscope.codewiki.cli.CodewikiCli benchmark \
+  --repo /path/to/repo \
+  --output ./benchmark
+```
+
+The report includes repository size, file count, language distribution, parse time, graph build time, index time, impact analysis time, review time, wiki generation time, peak memory, context size, token usage, Dify calls, review findings count, top 10 largest files, top 10 most connected symbols, and top 10 high risk modules.
+
 Useful flags:
 
 - `--dry-run` executes the pipeline and writes the run log without writing wiki pages or summary cache.
