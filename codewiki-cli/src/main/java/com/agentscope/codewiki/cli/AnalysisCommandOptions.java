@@ -26,6 +26,10 @@ public final class AnalysisCommandOptions {
     private final int difyTimeoutSeconds;
     private final int maxContextTokens;
     private final String sessionId;
+    private final boolean reviewDiff;
+    private final String baseRef;
+    private final String headRef;
+    private final boolean changedOnly;
     private final WikiGenerationOptions wikiGenerationOptions;
 
     private AnalysisCommandOptions(
@@ -41,6 +45,10 @@ public final class AnalysisCommandOptions {
             int difyTimeoutSeconds,
             int maxContextTokens,
             String sessionId,
+            boolean reviewDiff,
+            String baseRef,
+            String headRef,
+            boolean changedOnly,
             WikiGenerationOptions wikiGenerationOptions) {
         this.repoPath = repoPath;
         this.outputDirectory = outputDirectory;
@@ -54,6 +62,10 @@ public final class AnalysisCommandOptions {
         this.difyTimeoutSeconds = difyTimeoutSeconds;
         this.maxContextTokens = maxContextTokens;
         this.sessionId = sessionId;
+        this.reviewDiff = reviewDiff;
+        this.baseRef = baseRef;
+        this.headRef = headRef;
+        this.changedOnly = changedOnly;
         this.wikiGenerationOptions =
                 wikiGenerationOptions == null
                         ? WikiGenerationOptions.incremental()
@@ -84,6 +96,10 @@ public final class AnalysisCommandOptions {
                         DEFAULT_MAX_CONTEXT_TOKENS,
                         "CODEWIKI_MAX_CONTEXT_TOKENS");
         String sessionId = null;
+        boolean reviewDiff = false;
+        String baseRef = "main";
+        String headRef = "HEAD";
+        boolean changedOnly = false;
         boolean wikiIncremental = true;
         boolean mermaidEnabled = true;
         EnumSet<WikiPage> wikiPages = EnumSet.allOf(WikiPage.class);
@@ -112,6 +128,10 @@ public final class AnalysisCommandOptions {
                                         DEFAULT_MAX_CONTEXT_TOKENS,
                                         arg);
                 case "--session-id" -> sessionId = requireValue(args, ++index, arg);
+                case "--review-diff" -> reviewDiff = true;
+                case "--base-ref" -> baseRef = requireValue(args, ++index, arg);
+                case "--head-ref" -> headRef = requireValue(args, ++index, arg);
+                case "--changed-only" -> changedOnly = true;
                 case "--wiki-incremental" -> wikiIncremental = true;
                 case "--wiki-full" -> wikiIncremental = false;
                 case "--wiki-page" ->
@@ -151,6 +171,10 @@ public final class AnalysisCommandOptions {
                 difyTimeoutSeconds,
                 maxContextTokens,
                 text(sessionId),
+                reviewDiff,
+                textOrDefault(baseRef, "main"),
+                textOrDefault(headRef, "HEAD"),
+                changedOnly,
                 wikiOptions);
     }
 
@@ -247,6 +271,22 @@ public final class AnalysisCommandOptions {
 
     public String sessionId() {
         return sessionId;
+    }
+
+    public boolean reviewDiff() {
+        return reviewDiff;
+    }
+
+    public String baseRef() {
+        return baseRef;
+    }
+
+    public String headRef() {
+        return headRef;
+    }
+
+    public boolean changedOnly() {
+        return changedOnly;
     }
 
     public WikiGenerationOptions wikiGenerationOptions() {

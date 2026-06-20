@@ -18,7 +18,11 @@ public class CodewikiCli {
                 return 0;
             }
             AnalysisCommandOptions options = AnalysisCommandOptions.parse(args);
-            new EndToEndAnalysisRunner().run(options);
+            if (options.reviewDiff()) {
+                new DiffReviewCliRunner().run(options);
+            } else {
+                new EndToEndAnalysisRunner().run(options);
+            }
             return 0;
         } catch (IllegalArgumentException exception) {
             System.err.println(exception.getMessage());
@@ -36,6 +40,8 @@ public class CodewikiCli {
                         + "[--dry-run] [--mock|--dify] [--log ./run.log] "
                         + "[--dify-base-url URL] [--dify-api-key KEY] [--dify-user USER] "
                         + "[--dify-timeout-seconds N] [--max-context-tokens N] [--session-id ID]\n"
+                        + "       codewiki analyze --repo /path/to/repo --output ./review --review-diff "
+                        + "[--base-ref main] [--head-ref HEAD] [--changed-only] [--mock|--dify]\n"
                         + "       codewiki benchmark --repo /path/to/repo --output ./benchmark");
     }
 }
