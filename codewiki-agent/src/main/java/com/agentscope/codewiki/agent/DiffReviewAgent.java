@@ -61,15 +61,20 @@ public class DiffReviewAgent {
 
     public DiffReviewReport review(
             String gitDiff, List<String> changedFiles, ImpactReport impactReport) {
+        List<String> safeChangedFiles = safeList(changedFiles);
+        if (safeChangedFiles.isEmpty()) {
+            return noCodeChangesReport();
+        }
         List<ChangedSymbol> symbols = extractChangedSymbols(gitDiff);
         ImpactReport safeImpactReport = impactReport == null ? new ImpactReport() : impactReport;
-        String query = buildRetrievalQuery(gitDiff, changedFiles, safeImpactReport, symbols);
+        String query = buildRetrievalQuery(gitDiff, safeChangedFiles, safeImpactReport, symbols);
         ContextPack contextPack = retriever.retrieve(query);
         BudgetedContext budgetedContext = applyContextBudget(contextPack);
         if (mockMode) {
-            return mockReview(gitDiff, changedFiles, safeImpactReport, symbols, budgetedContext);
+            return mockReview(
+                    gitDiff, safeChangedFiles, safeImpactReport, symbols, budgetedContext);
         }
-        return difyReview(gitDiff, changedFiles, safeImpactReport, symbols, budgetedContext);
+        return difyReview(gitDiff, safeChangedFiles, safeImpactReport, symbols, budgetedContext);
     }
 
     public DiffReviewReport review(
@@ -80,6 +85,20 @@ public class DiffReviewAgent {
         ImpactReport impactReport =
                 new ImpactAnalyzer(codeGraph).analyze(changedFiles, changedSymbols);
         return review(gitDiff, changedFiles, impactReport);
+    }
+
+    public static DiffReviewReport noCodeChangesReport() {
+        DiffReviewReport report = new DiffReviewReport();
+        report.setSummary("No code changes detected.");
+        report.setChangedFiles(List.of());
+        report.setImpactAnalysis(
+                "Risk level: LOW\n"
+                        + "Changed symbols: []\n"
+                        + "Affected modules: []\n"
+                        + "Direct impacts:\n- none\n"
+                        + "Transitive impacts:\n- none\n");
+        report.setEvidence("No code changes detected.");
+        return report;
     }
 
     private DiffReviewReport mockReview(

@@ -2,6 +2,7 @@ package com.agentscope.codewiki.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.agentscope.codewiki.dify.DifyChatModel;
@@ -68,6 +69,36 @@ class DiffReviewAgentTest {
         assertTrue(
                 report.getFindings().stream()
                         .anyMatch(f -> f.getSeverity() == ReviewSeverity.HIGH));
+    }
+
+    @Test
+    void noOpDiffProducesZeroFindingsAndZeroChangedSymbols() {
+        ImpactReport staleImpactReport = new ImpactReport();
+        staleImpactReport.setChangedSymbols(List.of("StaleSymbol"));
+        staleImpactReport.setRiskLevel("HIGH");
+        DiffReviewAgent agent = DiffReviewAgent.mockMode(retrievalCorpus(), 2_000);
+
+        DiffReviewReport report = agent.review("", List.of(), staleImpactReport);
+        String markdown = report.toMarkdown();
+
+        assertEquals("No code changes detected.", report.getSummary());
+        assertTrue(report.getFindings().isEmpty());
+        assertTrue(markdown.contains("No code changes detected."));
+        assertTrue(markdown.contains("Risk level: LOW"));
+        assertTrue(markdown.contains("Changed symbols: []"));
+        assertFalse(markdown.contains("StaleSymbol"));
+    }
+
+    @Test
+    void noOpDiffSkipsDify() {
+        CapturingDifyChatModel dify = new CapturingDifyChatModel("HIGH should not be used");
+        DiffReviewAgent agent = DiffReviewAgent.difyMode(retrievalCorpus(), dify, 2_000);
+
+        DiffReviewReport report = agent.review("", List.of(), new ImpactReport());
+
+        assertEquals("No code changes detected.", report.getSummary());
+        assertTrue(report.getFindings().isEmpty());
+        assertNull(dify.lastPrompt);
     }
 
     @Test

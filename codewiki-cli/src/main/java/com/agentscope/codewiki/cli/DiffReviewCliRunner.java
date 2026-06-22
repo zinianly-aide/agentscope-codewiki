@@ -46,16 +46,25 @@ final class DiffReviewCliRunner {
             String diff = git(options.repoPath(), "diff", options.baseRef(), options.headRef());
             IncrementalReport incrementalReport = diffNameStatus(options);
             List<String> changedFiles = changedFiles(incrementalReport);
+            if (changedFiles.isEmpty()) {
+                DiffReviewAgent.noCodeChangesReport().writeMarkdown(options.outputDirectory());
+                incrementalReport.writeJson(options.outputDirectory());
+                new ImpactReport().writeJson(options.outputDirectory());
+                return;
+            }
             List<SourceFileAnalysis> analyses =
                     analyzeSourceFiles(options.repoPath(), changedFiles, options.changedOnly());
+            List<SourceFileAnalysis> changedAnalyses = changedAnalyses(analyses, changedFiles);
             List<CodeSymbol> symbols =
                     analyses.stream().flatMap(file -> file.symbols().stream()).toList();
+            List<String> changedSymbolNames =
+                    changedAnalyses.stream()
+                            .flatMap(file -> file.symbols().stream())
+                            .map(CodeSymbol::getName)
+                            .toList();
             CodeGraph graph = new CodeGraphBuilder().build(symbols);
             ImpactReport impactReport =
-                    new ImpactAnalyzer(graph)
-                            .analyze(
-                                    incrementalReport,
-                                    symbols.stream().map(CodeSymbol::getName).toList());
+                    new ImpactAnalyzer(graph).analyze(incrementalReport, changedSymbolNames);
             DiffReviewAgent agent = createAgent(options, analyses);
             DiffReviewReport report = agent.review(diff, changedFiles, impactReport);
             report.writeMarkdown(options.outputDirectory());
@@ -143,9 +152,20 @@ final class DiffReviewCliRunner {
         return files.stream().sorted().toList();
     }
 
+    private List<SourceFileAnalysis> changedAnalyses(
+            List<SourceFileAnalysis> analyses, List<String> changedFiles) {
+        Set<String> changed = new LinkedHashSet<>(changedFiles);
+        return analyses.stream()
+                .filter(analysis -> changed.contains(analysis.relativePath()))
+                .toList();
+    }
+
     private List<SourceFileAnalysis> analyzeSourceFiles(
             Path repo, List<String> changedFiles, boolean changedOnly) throws IOException {
         Set<String> changed = new LinkedHashSet<>(changedFiles);
+        if (changedOnly && changed.isEmpty()) {
+            return List.of();
+        }
         TreeSitterSymbolExtractor extractor = createExtractor();
         List<SourceFileAnalysis> analyses = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(repo)) {
