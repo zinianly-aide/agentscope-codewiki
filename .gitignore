@@ -22,5 +22,12 @@ Thumbs.db
 # Logs
 *.log
 
+# Generated CodeWiki analysis outputs
+benchmark/
+review/
+review-v*/
+wiki/
+real-repo-validation-report*.md
+
 # Tree-sitter bridge dependencies
 codewiki-parser/src/main/resources/tree-sitter-bridge/node_modules/

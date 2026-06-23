@@ -40,10 +40,21 @@ code at scale.
 | **codewiki-parser** | AST parsing and symbol extraction |
 | **codewiki-indexer** | Code knowledge graph construction and index management |
 | **codewiki-retriever** | Semantic and structural code search |
-| **codewiki-agent** | AgentScope-driven multi-agent pipeline orchestration |
+| **codewiki-agent** | Wiki generation, impact analysis, and diff-review workflows |
 | **codewiki-dify** | Dify platform integration plugin |
 | **codewiki-cli** | End-to-end local analysis command for acceptance runs |
-| **codewiki-web** | Spring Boot web API and frontend |
+| **codewiki-web** | Spring Boot application shell for future API and UI work |
+
+## Current Status
+
+The repository analysis pipeline is implemented and covered by unit and end-to-end tests. It
+supports Git-aware repository scanning, Java/Python/TypeScript symbol extraction, code graph
+construction, hybrid retrieval, incremental indexing, deterministic impact analysis, mock or
+Dify-backed diff review, wiki generation, and benchmark reporting.
+
+The web module is currently an application shell; REST endpoints, API documentation, and a web
+UI are not implemented yet. Likewise, the current workflow classes are orchestration facades,
+not a full AgentScope multi-agent runtime.
 
 ## Quick Start
 
@@ -201,23 +212,25 @@ For 32k-context Dify apps, use `CODEWIKI_MAX_CONTEXT_TOKENS=32000` or `--max-con
 - [x] Code quality toolchain (Spotless, Checkstyle)
 
 ### Phase 2 — Core Parsing
-- [ ] Repository cloning and file traversal
-- [ ] Multi-language AST parsing (Java, Python, TypeScript)
-- [ ] Symbol extraction and code graph construction
+- [x] Git-aware repository scanning and file traversal
+- [x] Multi-language symbol extraction (Java, Python, TypeScript)
+- [x] Symbol extraction and code graph construction
 
 ### Phase 3 — Indexing & Retrieval
-- [ ] Hybrid embedding + keyword indexing
-- [ ] Incremental index updates
+- [x] Hybrid embedding + keyword retrieval
+- [x] Incremental index updates
 - [ ] Semantic code search API
 
-### Phase 4 — Agent Pipeline
+### Phase 4 — Analysis Pipeline
+- [x] End-to-end CLI analysis and wiki generation
+- [x] Context assembly and context-budget enforcement
+- [x] Deterministic impact analysis and diff review
 - [ ] AgentScope multi-agent orchestration
-- [ ] Query understanding and decomposition
-- [ ] Context assembly and response generation
+- [ ] Interactive query understanding and response generation
 
 ### Phase 5 — Platform Integration
+- [x] Dify-compatible chat and embedding integration
 - [ ] REST API and Swagger documentation
-- [ ] Dify plugin integration
 - [ ] Web UI with code exploration
 
 ## License
