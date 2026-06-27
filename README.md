@@ -68,6 +68,8 @@ java -cp codewiki-cli/target/classes:codewiki-core/target/classes:codewiki-parse
 
 The command scans the Git repository, parses supported code symbols, generates or reuses a local summary cache, builds retrieval context, runs the AgentScope workflow path in mock mode, and writes `overview.md`, `architecture.md`, `modules.md`, `dataflow.md`, and `review.md`.
 
+For a step-by-step operating procedure covering local setup, mock mode, Dify mode, diff review, benchmark runs, outputs, and troubleshooting, see [CodeWiki 使用 SOP](docs/usage-sop.zh-CN.md).
+
 ### Code Graph
 
 `codewiki-indexer` builds a code knowledge graph from the existing symbol extraction output. It reuses `CodeSymbol`, `RepositoryScanner`, and `TreeSitterSymbolExtractor` instead of introducing a second source parser. The graph serializes to `graph.json` with this top-level shape:
