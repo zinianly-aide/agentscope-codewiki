@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Enterprise Agent Demo</title>
+  <link rel="stylesheet" href="/agent.css">
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <div>
+        <h1>Enterprise Agent Demo</h1>
+        <p>安全展示执行阶段摘要，不展示 chain-of-thought、隐藏 reasoning、系统提示词或密钥。</p>
+      </div>
+      <button id="clearBtn" type="button">清空对话</button>
+    </section>
+
+    <section class="panel controls">
+      <label>User ID <input id="userId" value="E10086" maxlength="128"></label>
+      <label>Session ID <input id="sessionId" value="web-demo" maxlength="128"></label>
+      <button id="demoBtn" type="button">演示问题</button>
+    </section>
+
+    <section id="messages" class="messages" aria-live="polite"></section>
+
+    <section class="composer">
+      <textarea id="messageInput" rows="4" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+      <button id="sendBtn" type="button">发送</button>
+    </section>
+  </main>
+  <script src="/agent.js"></script>
+</body>
+</html>

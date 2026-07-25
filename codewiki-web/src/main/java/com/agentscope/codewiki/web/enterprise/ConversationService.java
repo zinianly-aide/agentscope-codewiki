@@ -2,17 +2,35 @@ package com.agentscope.codewiki.web.enterprise;
 
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import org.slf4j.MDC;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 public class ConversationService {
     private final ConversationStore store;
     private final EnterpriseAgentService agentService;
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private final ThreadPoolTaskExecutor executor;
 
     public ConversationService(ConversationStore store, EnterpriseAgentService agentService) {
+        this(store, agentService, defaultExecutor());
+    }
+
+    public ConversationService(
+            ConversationStore store,
+            EnterpriseAgentService agentService,
+            ThreadPoolTaskExecutor executor) {
         this.store = store;
         this.agentService = agentService;
+        this.executor = executor;
+    }
+
+    private static ThreadPoolTaskExecutor defaultExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(10);
+        executor.initialize();
+        return executor;
     }
 
     public ConversationExecution start(ChatRequest request) {
@@ -24,7 +42,31 @@ public class ConversationService {
                 AgentEventStatus.COMPLETED,
                 1,
                 Map.of("executionMode", "pending"));
-        executor.submit(() -> run(execution, request));
+        Map<String, String> parentMdc =
+                Map.of(
+                        "requestId", request.requestId(),
+                        "userId", request.userId(),
+                        "sessionId", request.sessionId());
+        try {
+            executor.execute(
+                    () -> {
+                        MDC.setContextMap(parentMdc);
+                        try {
+                            run(execution, request);
+                        } finally {
+                            MDC.clear();
+                        }
+                    });
+        } catch (TaskRejectedException ex) {
+            execution.status(ConversationStatus.FAILED);
+            execution.append(
+                    AgentEventType.AGENT_FAILED,
+                    "队列已满",
+                    "异步执行队列已满，请稍后重试",
+                    AgentEventStatus.FAILED,
+                    100,
+                    Map.of("errorCode", "ASYNC_QUEUE_FULL"));
+        }
         return execution;
     }
 
@@ -74,7 +116,8 @@ public class ConversationService {
                             && !lower.contains("api-key")
                             && !lower.contains("prompt")
                             && !lower.contains("skillcontent")
-                            && !lower.contains("reasoning")) {
+                            && !lower.contains("reasoning")
+                            && !lower.contains("chainofthought")) {
                         sanitized.put(key, value);
                     }
                 });

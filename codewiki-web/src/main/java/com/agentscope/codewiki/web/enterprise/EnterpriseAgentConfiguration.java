@@ -8,13 +8,15 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /** Spring beans for the single enterprise ReAct agent and its toolkit. */
 @Configuration
 @EnableConfigurationProperties({
     EnterpriseAgentProperties.class,
     SmsApiProperties.class,
-    ConversationProperties.class
+    ConversationProperties.class,
+    McpServerProperties.class
 })
 public class EnterpriseAgentConfiguration {
     @Bean
@@ -45,10 +47,20 @@ public class EnterpriseAgentConfiguration {
     }
 
     @Bean
-    AgentToolRegistry agentToolRegistry(EnterpriseTools enterpriseTools) {
+    McpClient mcpClient(McpServerProperties properties, ObjectMapper objectMapper) {
+        HttpMcpClient client = new HttpMcpClient(properties, objectMapper);
+        client.discoverTools();
+        return client;
+    }
+
+    @Bean
+    AgentToolRegistry agentToolRegistry(EnterpriseTools enterpriseTools, McpClient mcpClient) {
         AgentToolRegistry registry = new AgentToolRegistry();
         registry.register(new LocalSmsSummaryTool(enterpriseTools));
         registry.register(new LocalPythonTool(enterpriseTools));
+        for (McpToolDescriptor descriptor : mcpClient.discoverTools().tools()) {
+            registry.register(new McpAgentTool(descriptor, mcpClient));
+        }
         return registry;
     }
 
@@ -123,17 +135,32 @@ public class EnterpriseAgentConfiguration {
     }
 
     @Bean
+    ThreadPoolTaskExecutor enterpriseAgentTaskExecutor(EnterpriseAgentProperties properties) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("enterprise-agent-");
+        executor.setCorePoolSize(properties.getAsync().getCorePoolSize());
+        executor.setMaxPoolSize(properties.getAsync().getMaxPoolSize());
+        executor.setQueueCapacity(properties.getAsync().getQueueCapacity());
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean
     ConversationService conversationService(
-            ConversationStore conversationStore, EnterpriseAgentService enterpriseAgentService) {
-        return new ConversationService(conversationStore, enterpriseAgentService);
+            ConversationStore conversationStore,
+            EnterpriseAgentService enterpriseAgentService,
+            ThreadPoolTaskExecutor enterpriseAgentTaskExecutor) {
+        return new ConversationService(
+                conversationStore, enterpriseAgentService, enterpriseAgentTaskExecutor);
     }
 
     @Bean
     EnterpriseHealthIndicator enterpriseHealthIndicator(
             DockerHealthService dockerHealthService,
             SmsApiProperties smsApiProperties,
-            SkillRepository skillRepository) {
+            SkillRepository skillRepository,
+            McpClient mcpClient) {
         return new EnterpriseHealthIndicator(
-                dockerHealthService, smsApiProperties, skillRepository);
+                dockerHealthService, smsApiProperties, skillRepository, mcpClient);
     }
 }

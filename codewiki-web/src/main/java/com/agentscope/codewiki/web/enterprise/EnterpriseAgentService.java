@@ -11,7 +11,7 @@ import org.slf4j.MDC;
 /** Service boundary for session isolation, request timeout, and safe error conversion. */
 public class EnterpriseAgentService {
     private static final Logger LOGGER = LoggerFactory.getLogger(EnterpriseAgentService.class);
-    private static final Duration TIMEOUT = Duration.ofSeconds(90);
+    private static final Duration TIMEOUT = Duration.ofSeconds(60);
     private final EnterpriseReActAgent enterpriseAgent;
     private final EnterpriseSessionStore sessionStore;
 

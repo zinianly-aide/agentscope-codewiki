@@ -1,6 +1,7 @@
 package com.agentscope.codewiki.web.enterprise;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -37,7 +38,7 @@ public class ConversationExecution {
                         String.format(java.util.Locale.ROOT, "evt-%03d", seq),
                         conversationId,
                         requestId,
-                        OffsetDateTime.now(),
+                        OffsetDateTime.now(ZoneOffset.ofHours(9)),
                         type,
                         stage,
                         message,

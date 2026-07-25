@@ -31,10 +31,13 @@ public class McpController {
     @PostMapping("/tools/{toolName}/call")
     public ResponseEntity<McpToolCallResponse<?>> call(
             @PathVariable String toolName, @Valid @RequestBody McpToolCallRequest request) {
-        McpToolCallResponse<?> response = registry.call(toolName, request.arguments());
-        if ("TOOL_NOT_FOUND".equals(response.errorCode())) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        if (!registry.registered(toolName)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(
+                            McpToolCallResponse.failure(
+                                    toolName, "TOOL_NOT_FOUND", "unknown MCP tool"));
         }
+        McpToolCallResponse<?> response = registry.call(toolName, request.arguments());
         return ResponseEntity.ok(response);
     }
 

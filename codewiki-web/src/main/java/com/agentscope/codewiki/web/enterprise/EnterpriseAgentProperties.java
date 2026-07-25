@@ -20,6 +20,7 @@ public class EnterpriseAgentProperties {
     private int maxToolCallsPerRequest = 8;
     private boolean pythonEnabled = true;
     private long maxModelResponseBytes = 1024 * 1024;
+    private Async async = new Async();
 
     public String getModel() {
         return model;
@@ -138,6 +139,44 @@ public class EnterpriseAgentProperties {
 
     public void setMaxModelResponseBytes(long maxModelResponseBytes) {
         this.maxModelResponseBytes = Math.max(4096, maxModelResponseBytes);
+    }
+
+    public Async getAsync() {
+        return async;
+    }
+
+    public void setAsync(Async async) {
+        this.async = async == null ? new Async() : async;
+    }
+
+    public static class Async {
+        private int corePoolSize = 4;
+        private int maxPoolSize = 8;
+        private int queueCapacity = 100;
+
+        public int getCorePoolSize() {
+            return corePoolSize;
+        }
+
+        public void setCorePoolSize(int corePoolSize) {
+            this.corePoolSize = Math.max(1, corePoolSize);
+        }
+
+        public int getMaxPoolSize() {
+            return maxPoolSize;
+        }
+
+        public void setMaxPoolSize(int maxPoolSize) {
+            this.maxPoolSize = Math.max(corePoolSize, maxPoolSize);
+        }
+
+        public int getQueueCapacity() {
+            return queueCapacity;
+        }
+
+        public void setQueueCapacity(int queueCapacity) {
+            this.queueCapacity = Math.max(1, queueCapacity);
+        }
     }
 
     public boolean modelConfigured() {

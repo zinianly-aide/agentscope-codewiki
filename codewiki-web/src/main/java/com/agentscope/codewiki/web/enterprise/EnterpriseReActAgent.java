@@ -169,7 +169,99 @@ public class EnterpriseReActAgent {
                 "查询短信统计完成",
                 "已获得短信统计结果",
                 AgentEventStatus.COMPLETED,
-                55);
+                55,
+                java.util.Map.of(
+                        "toolName",
+                        "query_sms_summary",
+                        "toolSource",
+                        ToolSource.LOCAL_JAVA.name()));
+        SmsSummary.PlatformMetric abnormal =
+                summary.platforms().stream()
+                        .max(Comparator.comparingDouble(SmsSummary.PlatformMetric::blockedRate))
+                        .orElse(new SmsSummary.PlatformMetric("unknown", 0, 0, 0));
+        emit(
+                context,
+                AgentEventType.MODEL_TOOL_SELECTION,
+                "发现异常平台",
+                "发现 " + abnormal.platform() + " 异常",
+                AgentEventStatus.COMPLETED,
+                60,
+                java.util.Map.of("platform", abnormal.platform()));
+        emit(
+                context,
+                AgentEventType.MCP_DISCOVERY_STARTED,
+                "发现 MCP 工具",
+                "正在发现 MCP 工具",
+                AgentEventStatus.RUNNING,
+                62);
+        emit(
+                context,
+                AgentEventType.MCP_DISCOVERY_COMPLETED,
+                "发现 MCP 工具完成",
+                "已准备 MCP 工具调用",
+                AgentEventStatus.COMPLETED,
+                64);
+        emit(
+                context,
+                AgentEventType.MCP_TOOL_CALL_STARTED,
+                "查询平台负责人",
+                "正在通过 MCP 查询负责人",
+                AgentEventStatus.RUNNING,
+                68,
+                java.util.Map.of(
+                        "toolName", "get_platform_owner", "toolSource", ToolSource.MCP.name()));
+        ToolResult<?> ownerResult =
+                agentToolRegistry.execute(
+                        "get_platform_owner",
+                        java.util.Map.of("platform", abnormal.platform()),
+                        context);
+        emit(
+                context,
+                ownerResult.success()
+                        ? AgentEventType.MCP_TOOL_CALL_COMPLETED
+                        : AgentEventType.TOOL_CALL_FAILED,
+                ownerResult.success() ? "负责人查询完成" : "负责人查询失败",
+                ownerResult.success() ? "已获得平台负责人" : ownerResult.errorMessage(),
+                ownerResult.success() ? AgentEventStatus.COMPLETED : AgentEventStatus.FAILED,
+                74,
+                java.util.Map.of(
+                        "toolName", "get_platform_owner", "toolSource", ToolSource.MCP.name()));
+        emit(
+                context,
+                AgentEventType.MCP_TOOL_CALL_STARTED,
+                "生成告警摘要",
+                "正在生成告警摘要",
+                AgentEventStatus.RUNNING,
+                78,
+                java.util.Map.of(
+                        "toolName",
+                        "create_sms_alert_summary",
+                        "toolSource",
+                        ToolSource.MCP.name()));
+        ToolResult<?> alertResult =
+                agentToolRegistry.execute(
+                        "create_sms_alert_summary",
+                        java.util.Map.of(
+                                "platform", abnormal.platform(),
+                                "blockedRate",
+                                        abnormal.sensitiveBlocked() * 100.0 / abnormal.submitted(),
+                                "startDate", summary.startDate(),
+                                "endDate", summary.endDate()),
+                        context);
+        emit(
+                context,
+                alertResult.success()
+                        ? AgentEventType.MCP_TOOL_CALL_COMPLETED
+                        : AgentEventType.TOOL_CALL_FAILED,
+                alertResult.success() ? "告警摘要生成完成" : "告警摘要生成失败",
+                alertResult.success() ? "已生成告警摘要" : alertResult.errorMessage(),
+                alertResult.success() ? AgentEventStatus.COMPLETED : AgentEventStatus.FAILED,
+                82,
+                java.util.Map.of(
+                        "toolName",
+                        "create_sms_alert_summary",
+                        "toolSource",
+                        ToolSource.MCP.name()));
         ToolResult<String> python = null;
         if (needsCalculation(message)) {
             MDC.put("iteration", "2");
@@ -213,6 +305,20 @@ public class EnterpriseReActAgent {
                             + " 至 "
                             + summary.endDate()
                             + "）。计算依据：按平台 sensitiveBlocked/submitted 计算拦截率，按 totalSuccess/totalSubmitted 计算成功率。"
+                            + "\n负责人："
+                            + value(
+                                    asMap(ownerResult.data()),
+                                    "ownerName",
+                                    ownerResult.errorMessage())
+                            + "，邮箱："
+                            + value(asMap(ownerResult.data()), "ownerEmail", "MCP 不可用")
+                            + "\n告警等级："
+                            + value(asMap(alertResult.data()), "severity", alertResult.errorCode())
+                            + "\n建议措施："
+                            + value(
+                                    asMap(alertResult.data()),
+                                    "recommendedActions",
+                                    "检查近期新增短信模板；核对运营商回执中的敏感词原因；通知平台负责人评估")
                             + (loadedSkill.isBlank() ? "" : "已按 sms-analysis Skill 执行。")
                             + " 本次能力只读。";
             emit(
@@ -224,7 +330,14 @@ public class EnterpriseReActAgent {
                     98);
             return answer;
         }
-        String answer = deterministicAnalysis(summary, summaryResult.source(), loadedSkill, python);
+        String answer =
+                deterministicAnalysis(
+                        summary,
+                        summaryResult.source(),
+                        loadedSkill,
+                        python,
+                        ownerResult,
+                        alertResult);
         emit(
                 context,
                 AgentEventType.ANSWER_GENERATION_COMPLETED,
@@ -236,11 +349,18 @@ public class EnterpriseReActAgent {
     }
 
     private String deterministicAnalysis(
-            SmsSummary summary, String source, String loadedSkill, ToolResult<String> python) {
+            SmsSummary summary,
+            String source,
+            String loadedSkill,
+            ToolResult<String> python,
+            ToolResult<?> ownerResult,
+            ToolResult<?> alertResult) {
         SmsSummary.PlatformMetric abnormal =
                 summary.platforms().stream()
                         .max(Comparator.comparingDouble(SmsSummary.PlatformMetric::blockedRate))
                         .orElse(new SmsSummary.PlatformMetric("unknown", 0, 0, 0));
+        java.util.Map<?, ?> owner = asMap(ownerResult == null ? null : ownerResult.data());
+        java.util.Map<?, ?> alert = asMap(alertResult == null ? null : alertResult.data());
         return "查询时间范围："
                 + summary.startDate()
                 + " 至 "
@@ -259,14 +379,55 @@ public class EnterpriseReActAgent {
                 + abnormal.platform()
                 + "，拦截率 "
                 + percent(abnormal.sensitiveBlocked(), abnormal.submitted())
-                + "，高于其他平台。\n数据来源：query_sms_summary / "
+                + "，高于其他平台。"
+                + "\n负责人："
+                + value(
+                        owner,
+                        "ownerName",
+                        ownerResult == null ? "MCP 未调用" : ownerResult.errorMessage())
+                + "，邮箱："
+                + value(owner, "ownerEmail", "MCP 不可用")
+                + "，部门："
+                + value(owner, "department", "MCP 不可用")
+                + "\n告警等级："
+                + value(
+                        alert,
+                        "severity",
+                        alertResult == null ? "MCP 未调用" : alertResult.errorCode())
+                + "\n告警摘要："
+                + value(
+                        alert,
+                        "summary",
+                        alertResult == null ? "MCP 未调用" : alertResult.errorMessage())
+                + "\n建议措施："
+                + value(alert, "recommendedActions", "检查近期新增短信模板；核对运营商回执中的敏感词原因；通知平台负责人评估")
+                + "\n数据来源：query_sms_summary / "
                 + source
-                + "\n计算方式：按 totalSuccess/totalSubmitted 计算成功率，按 sensitiveBlocked/submitted 计算拦截率；检查成功量和拦截量未超过提交量。"
+                + "；get_platform_owner / create_sms_alert_summary / MCP"
+                + "\n计算方式：从 ToolResult.data 的结构化平台指标中选择 blockedRate 最高的平台；按 totalSuccess/totalSubmitted 计算成功率，按 sensitiveBlocked/submitted 计算拦截率。"
                 + (python == null || python.success()
                         ? ""
                         : " Python 未使用或不可用：" + python.errorMessage())
                 + (loadedSkill.isBlank() ? "" : " 已读取 sms-analysis Skill。")
                 + " 本次能力只读。";
+    }
+
+    private static java.util.Map<?, ?> asMap(Object value) {
+        if (value instanceof java.util.Map<?, ?> map) {
+            return map;
+        }
+        return java.util.Map.of();
+    }
+
+    private static String value(java.util.Map<?, ?> map, String key, Object fallback) {
+        Object value = map.get(key);
+        if (value instanceof java.util.List<?> list) {
+            return String.join("；", list.stream().map(Object::toString).toList());
+        }
+        if (value == null) {
+            return fallback == null ? "" : fallback.toString();
+        }
+        return value.toString();
     }
 
     private static void emit(

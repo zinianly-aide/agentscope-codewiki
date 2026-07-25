@@ -14,6 +14,18 @@ enterprise:
     max-tool-calls-per-request: ${AGENT_MAX_TOOL_CALLS_PER_REQUEST:8}
     python-enabled: ${AGENT_PYTHON_ENABLED:true}
     max-model-response-bytes: ${AGENT_MAX_MODEL_RESPONSE_BYTES:1048576}
+    async:
+      core-pool-size: ${AGENT_ASYNC_CORE_POOL_SIZE:4}
+      max-pool-size: ${AGENT_ASYNC_MAX_POOL_SIZE:8}
+      queue-capacity: ${AGENT_ASYNC_QUEUE_CAPACITY:100}
+  mcp:
+    enabled: ${MCP_DEMO_ENABLED:true}
+    servers:
+      demo:
+        name: codewiki-demo-mcp
+        base-url: ${MCP_DEMO_BASE_URL:http://127.0.0.1:8091}
+        connect-timeout: 3s
+        read-timeout: 10s
   sms-api:
     base-url: ${SMS_API_BASE_URL:http://127.0.0.1:8081}
     token: ${SMS_API_TOKEN:}

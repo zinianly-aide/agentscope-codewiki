@@ -8,14 +8,17 @@ public class EnterpriseHealthIndicator implements HealthIndicator {
     private final DockerHealthService dockerHealthService;
     private final SmsApiProperties smsApiProperties;
     private final SkillRepository skillRepository;
+    private final McpClient mcpClient;
 
     public EnterpriseHealthIndicator(
             DockerHealthService dockerHealthService,
             SmsApiProperties smsApiProperties,
-            SkillRepository skillRepository) {
+            SkillRepository skillRepository,
+            McpClient mcpClient) {
         this.dockerHealthService = dockerHealthService;
         this.smsApiProperties = smsApiProperties;
         this.skillRepository = skillRepository;
+        this.mcpClient = mcpClient;
     }
 
     @Override
@@ -25,6 +28,8 @@ public class EnterpriseHealthIndicator implements HealthIndicator {
                 .withDetail("pythonImagePresent", dockerHealthService.pythonImagePresent())
                 .withDetail("smsApiMode", smsApiProperties.isMockEnabled() ? "mock" : "real")
                 .withDetail("skillCount", skillRepository.skillCount())
+                .withDetail("mcpDemoStatus", mcpClient.available() ? "available" : "unavailable")
+                .withDetail("mcpDemoDetail", mcpClient.status())
                 .build();
     }
 }
