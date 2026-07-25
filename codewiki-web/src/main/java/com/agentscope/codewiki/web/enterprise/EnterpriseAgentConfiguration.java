@@ -11,7 +11,11 @@ import org.springframework.context.annotation.Configuration;
 
 /** Spring beans for the single enterprise ReAct agent and its toolkit. */
 @Configuration
-@EnableConfigurationProperties({EnterpriseAgentProperties.class, SmsApiProperties.class})
+@EnableConfigurationProperties({
+    EnterpriseAgentProperties.class,
+    SmsApiProperties.class,
+    ConversationProperties.class
+})
 public class EnterpriseAgentConfiguration {
     @Bean
     ProcessExecutor processExecutor() {
@@ -111,6 +115,17 @@ public class EnterpriseAgentConfiguration {
     EnterpriseAgentService enterpriseAgentService(
             EnterpriseReActAgent enterpriseAgent, EnterpriseSessionStore enterpriseSessionStore) {
         return new EnterpriseAgentService(enterpriseAgent, enterpriseSessionStore);
+    }
+
+    @Bean
+    ConversationStore conversationStore(ConversationProperties properties) {
+        return new InMemoryConversationStore(properties);
+    }
+
+    @Bean
+    ConversationService conversationService(
+            ConversationStore conversationStore, EnterpriseAgentService enterpriseAgentService) {
+        return new ConversationService(conversationStore, enterpriseAgentService);
     }
 
     @Bean

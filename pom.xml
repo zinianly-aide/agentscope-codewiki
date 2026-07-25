@@ -27,6 +27,7 @@
         <module>codewiki-dify</module>
         <module>codewiki-cli</module>
         <module>codewiki-web</module>
+        <module>codewiki-mcp-server</module>
     </modules>
 
     <properties>

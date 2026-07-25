@@ -22,6 +22,10 @@ public class EnterpriseAgentService {
     }
 
     public AgentChatResult chat(ChatRequest request) {
+        return chat(request, null);
+    }
+
+    public AgentChatResult chat(ChatRequest request, AgentProgressPublisher publisher) {
         putMdc(request);
         try {
             EnterpriseSession session = sessionStore.get(request.userId(), request.sessionId());
@@ -37,7 +41,8 @@ public class EnterpriseAgentService {
                                                                 session.snapshot(),
                                                                 request.message(),
                                                                 new ToolExecutionContext(
-                                                                        request.requestId()));
+                                                                        request.requestId(),
+                                                                        publisher));
                                                 session.add(request.message(), answer.answer());
                                                 return answer;
                                             }

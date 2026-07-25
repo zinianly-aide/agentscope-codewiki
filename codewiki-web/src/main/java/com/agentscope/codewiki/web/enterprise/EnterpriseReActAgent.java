@@ -276,7 +276,20 @@ public class EnterpriseReActAgent {
             String message,
             AgentEventStatus status,
             int progress) {
-        // 极简 REST Chat API 不提供流式进度事件；保留参数便于后续扩展。
+        emit(context, type, stage, message, status, progress, java.util.Map.of());
+    }
+
+    private static void emit(
+            ToolExecutionContext context,
+            AgentEventType type,
+            String stage,
+            String message,
+            AgentEventStatus status,
+            int progress,
+            java.util.Map<String, Object> metadata) {
+        if (context != null && context.progressPublisher() != null) {
+            context.progressPublisher().publish(type, stage, message, status, progress, metadata);
+        }
     }
 
     private static String pythonAnalysisCode(SmsSummary summary) {
