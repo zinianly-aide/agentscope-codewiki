@@ -20,6 +20,10 @@ public record BenchmarkReport(
         long peakMemoryBytes,
         long contextSizeBytes,
         long tokenUsage,
+        long contextLimitTokens,
+        long maxPromptTokens,
+        long averagePromptTokens,
+        long promptsOverContextLimit,
         long difyCalls,
         long reviewFindingsCount,
         List<FileMetric> largestFiles,
@@ -75,6 +79,13 @@ public record BenchmarkReport(
         appendMetric(markdown, "Token Usage", Long.toString(tokenUsage));
         appendMetric(markdown, "Dify Calls", Long.toString(difyCalls));
         appendMetric(markdown, "Review Findings Count", Long.toString(reviewFindingsCount));
+
+        markdown.append("\n## 32k Context Metrics\n\n");
+        appendMetric(markdown, "Context Limit Tokens", Long.toString(contextLimitTokens));
+        appendMetric(markdown, "Max Prompt Tokens", Long.toString(maxPromptTokens));
+        appendMetric(markdown, "Average Prompt Tokens", Long.toString(averagePromptTokens));
+        appendMetric(
+                markdown, "Prompts Over Context Limit", Long.toString(promptsOverContextLimit));
 
         markdown.append("\n## Top 10 Largest Files\n\n");
         appendLargestFiles(markdown);

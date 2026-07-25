@@ -19,10 +19,13 @@ import com.agentscope.codewiki.parser.RepositoryMetadata;
 import com.agentscope.codewiki.parser.RepositoryScanner;
 import com.agentscope.codewiki.parser.TreeSitterSymbolExtractor;
 import com.agentscope.codewiki.retriever.CodeDocument;
+import com.agentscope.codewiki.retriever.CodeDocumentChunker;
 import com.agentscope.codewiki.retriever.ContextPack;
 import com.agentscope.codewiki.retriever.HybridRetriever;
 import com.agentscope.codewiki.retriever.RetrievalCorpus;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -84,7 +87,10 @@ public class BenchmarkRunner {
 
         RetrievalCorpus corpus =
                 RetrievalCorpus.of(
-                        parse.value().stream().map(SourceFileAnalysis::toDocument).toList());
+                        CodeDocumentChunker.chunkAll(
+                                parse.value().stream()
+                                        .map(SourceFileAnalysis::toDocument)
+                                        .toList()));
         Timed<DiffReviewReport> review =
                 timed(
                         () ->
@@ -97,6 +103,9 @@ public class BenchmarkRunner {
         Timed<Void> wiki = timedVoid(() -> generateWiki(repo, parse.value(), outputDirectory));
         peakMemory = Math.max(peakMemory, usedMemory());
 
+        String renderedContext = renderContext(index.value());
+        long contextTokens = estimateTokens(renderedContext);
+        long contextLimit = AnalysisCommandOptions.DEFAULT_MAX_CONTEXT_TOKENS;
         BenchmarkReport report =
                 new BenchmarkReport(
                         repositorySize,
@@ -109,8 +118,12 @@ public class BenchmarkRunner {
                         review.millis(),
                         wiki.millis(),
                         peakMemory,
-                        renderContext(index.value()).getBytes(StandardCharsets.UTF_8).length,
-                        estimateTokens(renderContext(index.value())),
+                        renderedContext.getBytes(StandardCharsets.UTF_8).length,
+                        contextTokens,
+                        contextLimit,
+                        contextTokens,
+                        contextTokens,
+                        contextTokens > contextLimit ? 1 : 0,
                         0,
                         review.value().getFindings().size(),
                         largestFiles,
@@ -218,7 +231,8 @@ public class BenchmarkRunner {
     private ContextPack buildRetrievalContext(List<SourceFileAnalysis> sourceFiles) {
         RetrievalCorpus corpus =
                 RetrievalCorpus.of(
-                        sourceFiles.stream().map(SourceFileAnalysis::toDocument).toList());
+                        CodeDocumentChunker.chunkAll(
+                                sourceFiles.stream().map(SourceFileAnalysis::toDocument).toList()));
         return new HybridRetriever(corpus).retrieve("benchmark repository context", 10);
     }
 
@@ -245,11 +259,44 @@ public class BenchmarkRunner {
     }
 
     private List<Path> listFiles(Path repo) throws IOException {
+        List<Path> tracked = gitTrackedFiles(repo);
+        if (!tracked.isEmpty()) {
+            return tracked;
+        }
         try (Stream<Path> stream = Files.walk(repo)) {
             return stream.filter(Files::isRegularFile)
                     .filter(path -> !isIgnored(repo, path))
                     .sorted()
                     .toList();
+        }
+    }
+
+    private List<Path> gitTrackedFiles(Path repo) {
+        if (!Files.exists(repo.resolve(".git"))) {
+            return List.of();
+        }
+        try {
+            Process process =
+                    new ProcessBuilder("git", "ls-files").directory(repo.toFile()).start();
+            List<String> lines;
+            try (BufferedReader reader =
+                    new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                lines = reader.lines().filter(line -> !line.isBlank()).toList();
+            }
+            if (process.waitFor() != 0) {
+                return List.of();
+            }
+            return lines.stream()
+                    .map(repo::resolve)
+                    .filter(Files::isRegularFile)
+                    .filter(path -> !isIgnored(repo, path))
+                    .sorted()
+                    .toList();
+        } catch (IOException exception) {
+            return List.of();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return List.of();
         }
     }
 

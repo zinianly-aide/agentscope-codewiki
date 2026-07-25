@@ -3,11 +3,11 @@ package com.agentscope.codewiki.dify;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-/** Response from Dify POST /v1/chat-messages (blocking mode). */
+/** Response from Dify POST /v1/chat-messages. */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class DifyChatResponse {
 
-    /** Always "message" in blocking mode. */
+    /** Event name returned by Dify. */
     private String event;
 
     /** Unique message ID. */

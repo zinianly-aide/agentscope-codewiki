@@ -96,6 +96,7 @@ codewiki-run.log
 export DIFY_BASE_URL=https://api.dify.ai
 export DIFY_API_KEY=app-xxxxxxxx
 export DIFY_USER=codewiki-local
+export CODEWIKI_DIFY_RESPONSE_MODE=streaming
 export CODEWIKI_MAX_CONTEXT_TOKENS=32000
 ```
 
@@ -107,6 +108,7 @@ java -cp "$CODEWIKI_CP" com.agentscope.codewiki.cli.CodewikiCli \
   --repo /path/to/target-repo \
   --output /tmp/codewiki-runs/my-repo-wiki \
   --dify \
+  --dify-response-mode streaming \
   --dify-timeout-seconds 60 \
   --session-id local-acceptance
 ```
@@ -122,12 +124,14 @@ java -cp "$CODEWIKI_CP" com.agentscope.codewiki.cli.CodewikiCli \
   --dify-base-url https://api.dify.ai \
   --dify-api-key app-xxxxxxxx \
   --dify-user codewiki-local \
+  --dify-response-mode streaming \
   --max-context-tokens 32000
 ```
 
 注意事项：
 
 - 不要同时使用 `--mock` 和 `--dify`。
+- Dify Agent Chat App 通常需要 `--dify-response-mode streaming`；普通 Chat App 可继续使用默认 `blocking`。
 - `--max-context-tokens` 和 `CODEWIKI_MAX_CONTEXT_TOKENS` 必须是正整数。
 - Dify 不可用时，CLI 会记录失败原因；根据具体流程可能回退到本地 mock 分析。
 - 不要把真实 `DIFY_API_KEY` 写入仓库文档、脚本或提交记录。
@@ -254,7 +258,7 @@ java -cp "$CODEWIKI_CP" com.agentscope.codewiki.cli.CodewikiCli \
 | `Use either --mock or --dify, not both` | 二选一，不能同时传入 |
 | `Unknown wiki page` | 确认 `--wiki-page` 只使用 `overview`、`architecture`、`modules`、`dataflow`、`review` |
 | `ClassNotFoundException` | 先执行第 2 节和第 4 节，确认 `CODEWIKI_CP` 包含全部模块和外部依赖 |
-| Dify 调用失败 | 检查 `DIFY_BASE_URL`、`DIFY_API_KEY`、网络连通性和 `--dify-timeout-seconds` |
+| Dify 调用失败 | 检查 `DIFY_BASE_URL` / `DIFY_API_URL`、`DIFY_API_KEY`、网络连通性、`--dify-response-mode` 和 `--dify-timeout-seconds` |
 | 输出内容过少 | 先确认目标仓库存在 Java、Python 或 TypeScript 源码，并检查 `codewiki-run.log` |
 | diff review 没有结果 | 在目标仓库执行 `git diff baseRef headRef`，确认确实存在代码变更 |
 
@@ -272,4 +276,3 @@ java -cp "$CODEWIKI_CP" com.agentscope.codewiki.cli.CodewikiCli \
 - 如果执行 benchmark，附带 `benchmark-report.md`
 
 建议在交付说明中记录完整命令，但必须移除真实 API Key。
-

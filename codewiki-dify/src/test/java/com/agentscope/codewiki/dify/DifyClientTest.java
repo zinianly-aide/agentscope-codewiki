@@ -111,6 +111,66 @@ class DifyClientTest {
     }
 
     @Test
+    void shouldAggregateStreamingChatResponse() throws Exception {
+        server.createContext(
+                "/v1/chat-messages",
+                exchange -> {
+                    String reqBody =
+                            new String(
+                                    exchange.getRequestBody().readAllBytes(),
+                                    StandardCharsets.UTF_8);
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> reqMap = MAPPER.readValue(reqBody, Map.class);
+                    assertEquals("streaming", reqMap.get("response_mode"));
+
+                    String body =
+                            "data: {\"event\":\"message\",\"message_id\":\"m1\","
+                                    + "\"conversation_id\":\"c1\",\"answer\":\"hello \","
+                                    + "\"created_at\":1}\n\n"
+                                    + "data: {\"event\":\"message\",\"message_id\":\"m1\","
+                                    + "\"conversation_id\":\"c1\",\"answer\":\"world\","
+                                    + "\"created_at\":2}\n\n"
+                                    + "data: {\"event\":\"message_end\",\"message_id\":\"m1\","
+                                    + "\"conversation_id\":\"c1\",\"created_at\":3}\n\n";
+                    exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                    exchange.sendResponseHeaders(200, body.getBytes(StandardCharsets.UTF_8).length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(body.getBytes(StandardCharsets.UTF_8));
+                    }
+                });
+
+        DifyChatRequest request = new DifyChatRequest("hi", "user-1");
+        request.setResponseMode(DifyResponseMode.STREAMING.wireValue());
+        DifyChatResponse response = client.chat(request);
+
+        assertEquals("message_end", response.getEvent());
+        assertEquals("m1", response.getMessageId());
+        assertEquals("c1", response.getConversationId());
+        assertEquals("hello world", response.getAnswer());
+        assertEquals(3L, response.getCreatedAt());
+    }
+
+    @Test
+    void shouldThrowDifyExceptionOnStreamingErrorEvent() {
+        server.createContext(
+                "/v1/chat-messages",
+                exchange -> {
+                    String body = "data: {\"event\":\"error\",\"message\":\"stream failed\"}\n\n";
+                    exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                    exchange.sendResponseHeaders(200, body.getBytes(StandardCharsets.UTF_8).length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(body.getBytes(StandardCharsets.UTF_8));
+                    }
+                });
+
+        DifyChatRequest request = new DifyChatRequest("hi", "user-1");
+        request.setResponseMode(DifyResponseMode.STREAMING.wireValue());
+
+        DifyException exception = assertThrows(DifyException.class, () -> client.chat(request));
+        assertTrue(exception.getMessage().contains("stream failed"));
+    }
+
+    @Test
     void shouldIncludeConversationIdWhenSet() throws Exception {
         server.createContext(
                 "/v1/chat-messages",
@@ -182,5 +242,40 @@ class DifyClientTest {
 
         DifyChatResponse response = slashClient.chat(new DifyChatRequest("q", "u"));
         assertEquals("yes", response.getAnswer());
+    }
+
+    @Test
+    void shouldAcceptBaseUrlWithV1Suffix() throws Exception {
+        DifyClient v1Client =
+                new DifyClient(
+                        "http://localhost:" + port + "/v1", "key", HttpClient.newHttpClient());
+
+        server.createContext(
+                "/v1/chat-messages",
+                exchange -> {
+                    String body =
+                            MAPPER.writeValueAsString(
+                                    Map.of(
+                                            "event",
+                                            "message",
+                                            "message_id",
+                                            "m",
+                                            "conversation_id",
+                                            "c",
+                                            "answer",
+                                            "v1 ok",
+                                            "created_at",
+                                            1));
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, body.getBytes(StandardCharsets.UTF_8).length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(body.getBytes(StandardCharsets.UTF_8));
+                    }
+                });
+
+        DifyChatResponse response = v1Client.chat(new DifyChatRequest("q", "u"));
+
+        assertEquals("v1 ok", response.getAnswer());
+        assertEquals("http://localhost:" + port, v1Client.getBaseUrl());
     }
 }

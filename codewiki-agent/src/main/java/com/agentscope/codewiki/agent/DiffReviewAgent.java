@@ -22,6 +22,9 @@ import java.util.regex.Pattern;
 public class DiffReviewAgent {
 
     private static final int DEFAULT_CONTEXT_BUDGET_TOKENS = 8_000;
+    private static final int TOKEN_CHARS = 4;
+    private static final int REPORT_IMPACT_LIMIT = 25;
+    private static final int PROMPT_IMPACT_LIMIT = 20;
     private static final Pattern CLASS_PATTERN =
             Pattern.compile("\\b(class|interface|enum|record)\\s+(\\w+)");
     private static final Pattern METHOD_PATTERN =
@@ -200,7 +203,9 @@ public class DiffReviewAgent {
             BudgetedContext budgetedContext) {
         DiffReviewReport report = new DiffReviewReport();
         report.setChangedFiles(safeList(changedFiles));
-        report.setImpactAnalysis(renderImpactAnalysis(impactReport, symbols));
+        report.setImpactAnalysis(
+                renderImpactAnalysis(
+                        impactReport, symbols, REPORT_IMPACT_LIMIT, REPORT_IMPACT_LIMIT));
         report.setEvidence(budgetedContext.text());
         return report;
     }
@@ -211,18 +216,21 @@ public class DiffReviewAgent {
             ImpactReport impactReport,
             List<ChangedSymbol> symbols,
             BudgetedContext budgetedContext) {
-        return "You are the AI Diff Review Engine. Produce findings with severities INFO, LOW, "
-                + "MEDIUM, HIGH, or CRITICAL and cite file path, class, method, and evidence.\n\n"
-                + "Changed files:\n"
-                + String.join("\n", safeList(changedFiles))
-                + "\n\nChanged symbols:\n"
-                + symbols.stream().map(ChangedSymbol::reference).toList()
-                + "\n\nImpact analysis:\n"
-                + renderImpactAnalysis(impactReport, symbols)
-                + "\n\nContextPack:\n"
-                + budgetedContext.text()
-                + "\n\nGit diff:\n"
-                + nullToEmpty(gitDiff);
+        String instructions =
+                "You are the AI Diff Review Engine. Produce findings with severities INFO, LOW, "
+                        + "MEDIUM, HIGH, or CRITICAL and cite file path, class, method, and evidence.";
+        String changed =
+                "Changed files:\n"
+                        + String.join("\n", safeList(changedFiles))
+                        + "\n\nChanged symbols:\n"
+                        + symbols.stream().map(ChangedSymbol::reference).toList();
+        String impact =
+                "Impact analysis:\n"
+                        + renderImpactAnalysis(
+                                impactReport, symbols, PROMPT_IMPACT_LIMIT, PROMPT_IMPACT_LIMIT);
+        String context = "ContextPack:\n" + budgetedContext.text();
+        String diff = "Git diff:\n" + nullToEmpty(gitDiff);
+        return fitPromptToBudget(instructions, changed, impact, context, diff);
     }
 
     private List<ReviewFinding> parseDifyFindings(
@@ -259,7 +267,7 @@ public class DiffReviewAgent {
 
     private BudgetedContext applyContextBudget(ContextPack contextPack) {
         String rendered = renderContextPack(contextPack);
-        int maxChars = contextBudgetTokens * 4;
+        int maxChars = contextBudgetTokens * TOKEN_CHARS;
         if (rendered.length() <= maxChars) {
             return new BudgetedContext(rendered, false);
         }
@@ -322,7 +330,11 @@ public class DiffReviewAgent {
         return builder.toString();
     }
 
-    private String renderImpactAnalysis(ImpactReport impactReport, List<ChangedSymbol> symbols) {
+    private String renderImpactAnalysis(
+            ImpactReport impactReport,
+            List<ChangedSymbol> symbols,
+            int directLimit,
+            int transitiveLimit) {
         StringBuilder builder = new StringBuilder();
         builder.append("Risk level: ").append(impactReport.getRiskLevel()).append('\n');
         builder.append("Changed symbols: ").append(impactReport.getChangedSymbols()).append('\n');
@@ -332,27 +344,51 @@ public class DiffReviewAgent {
                     .append('\n');
         }
         builder.append("Affected modules: ").append(impactReport.getAffectedModules()).append('\n');
-        appendImpacts(builder, "Direct impacts", impactReport.getDirectImpacts());
-        appendImpacts(builder, "Transitive impacts", impactReport.getTransitiveImpacts());
+        appendImpacts(builder, "Direct impacts", impactReport.getDirectImpacts(), directLimit);
+        appendImpacts(
+                builder,
+                "Transitive impacts",
+                impactReport.getTransitiveImpacts(),
+                transitiveLimit);
         return builder.toString();
     }
 
-    private void appendImpacts(StringBuilder builder, String title, List<ImpactEdge> impacts) {
+    private void appendImpacts(
+            StringBuilder builder, String title, List<ImpactEdge> impacts, int limit) {
         builder.append(title).append(':').append('\n');
         if (impacts.isEmpty()) {
             builder.append("- none\n");
             return;
         }
+        Set<String> seen = new LinkedHashSet<>();
+        int written = 0;
         for (ImpactEdge impact : impacts) {
+            String source = impact.getSource() == null ? "" : impact.getSource().getFilePath();
+            String target = impact.getTarget() == null ? "" : impact.getTarget().getFilePath();
+            String key =
+                    impact.getRelation() + "|" + impact.getDepth() + "|" + source + "|" + target;
+            if (!seen.add(key)) {
+                continue;
+            }
+            if (written >= Math.max(0, limit)) {
+                break;
+            }
             builder.append("- ")
                     .append(impact.getRelation())
                     .append(" depth=")
                     .append(impact.getDepth())
                     .append(" ")
-                    .append(impact.getSource().getFilePath())
+                    .append(source)
                     .append(" -> ")
-                    .append(impact.getTarget().getFilePath())
+                    .append(target)
                     .append('\n');
+            written++;
+        }
+        int remaining = Math.max(0, seen.size() - written);
+        if (remaining > 0 || impacts.size() > seen.size()) {
+            builder.append("- ... trimmed ")
+                    .append(Math.max(remaining, impacts.size() - written))
+                    .append(" impact(s) for prompt budget\n");
         }
     }
 
@@ -386,8 +422,46 @@ public class DiffReviewAgent {
         terms.addAll(impactReport.getChangedSymbols());
         terms.addAll(impactReport.getAffectedModules());
         terms.addAll(symbols.stream().map(ChangedSymbol::reference).toList());
-        terms.add(nullToEmpty(gitDiff));
+        terms.add(truncate(nullToEmpty(gitDiff), 1_000));
         return String.join(" ", terms);
+    }
+
+    private String fitPromptToBudget(
+            String instructions, String changed, String impact, String context, String diff) {
+        int maxChars = Math.max(256, contextBudgetTokens * TOKEN_CHARS);
+        String full = joinSections(instructions, changed, impact, context, diff);
+        if (full.length() <= maxChars) {
+            return full;
+        }
+        int fixedChars = joinSections(instructions, changed).length() + 12;
+        int remaining = Math.max(0, maxChars - fixedChars);
+        int impactChars = Math.max(256, (int) (remaining * 0.25));
+        int contextChars = Math.max(256, (int) (remaining * 0.40));
+        int diffChars = Math.max(256, remaining - impactChars - contextChars);
+        String compact =
+                joinSections(
+                        instructions,
+                        changed,
+                        truncate(impact, impactChars),
+                        truncate(context, contextChars),
+                        truncate(diff, diffChars));
+        if (compact.length() <= maxChars) {
+            return compact;
+        }
+        return truncate(compact, maxChars);
+    }
+
+    private String joinSections(String... sections) {
+        return String.join("\n\n", sections);
+    }
+
+    private String truncate(String value, int maxChars) {
+        String text = nullToEmpty(value);
+        if (text.length() <= maxChars) {
+            return text;
+        }
+        String marker = "\n... [trimmed for Dify prompt budget]";
+        return text.substring(0, Math.max(0, maxChars - marker.length())) + marker;
     }
 
     private String inferSection(String text) {

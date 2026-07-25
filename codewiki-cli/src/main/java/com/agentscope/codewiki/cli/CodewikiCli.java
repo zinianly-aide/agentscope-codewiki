@@ -17,6 +17,12 @@ public class CodewikiCli {
                 new BenchmarkRunner().run(options.repoPath(), options.outputDirectory());
                 return 0;
             }
+            if (args != null && args.length > 0 && "ask".equals(args[0])) {
+                AskCommandOptions options = AskCommandOptions.parse(args);
+                AskRunner.AskResult result = new AskRunner().run(options);
+                System.out.println(result.answer());
+                return 0;
+            }
             AnalysisCommandOptions options = AnalysisCommandOptions.parse(args);
             if (options.reviewDiff()) {
                 new DiffReviewCliRunner().run(options);
@@ -39,9 +45,12 @@ public class CodewikiCli {
                 "Usage: codewiki analyze --repo /path/to/repo --output ./wiki "
                         + "[--dry-run] [--mock|--dify] [--log ./run.log] "
                         + "[--dify-base-url URL] [--dify-api-key KEY] [--dify-user USER] "
+                        + "[--dify-response-mode blocking|streaming] "
                         + "[--dify-timeout-seconds N] [--max-context-tokens N] [--session-id ID]\n"
                         + "       codewiki analyze --repo /path/to/repo --output ./review --review-diff "
                         + "[--base-ref main] [--head-ref HEAD] [--changed-only] [--mock|--dify]\n"
+                        + "       codewiki ask --repo /path/to/repo --question \"...\" "
+                        + "[--top-k N] [--mock|--dify] [--max-context-tokens N]\n"
                         + "       codewiki benchmark --repo /path/to/repo --output ./benchmark");
     }
 }

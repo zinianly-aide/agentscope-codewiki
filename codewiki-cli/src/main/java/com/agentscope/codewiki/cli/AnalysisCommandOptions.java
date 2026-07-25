@@ -2,6 +2,7 @@ package com.agentscope.codewiki.cli;
 
 import com.agentscope.codewiki.agent.WikiGenerationOptions;
 import com.agentscope.codewiki.agent.WikiPage;
+import com.agentscope.codewiki.dify.DifyResponseMode;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -23,6 +24,7 @@ public final class AnalysisCommandOptions {
     private final String difyBaseUrl;
     private final String difyApiKey;
     private final String difyUser;
+    private final DifyResponseMode difyResponseMode;
     private final int difyTimeoutSeconds;
     private final int maxContextTokens;
     private final String sessionId;
@@ -42,6 +44,7 @@ public final class AnalysisCommandOptions {
             String difyBaseUrl,
             String difyApiKey,
             String difyUser,
+            DifyResponseMode difyResponseMode,
             int difyTimeoutSeconds,
             int maxContextTokens,
             String sessionId,
@@ -59,6 +62,8 @@ public final class AnalysisCommandOptions {
         this.difyBaseUrl = difyBaseUrl;
         this.difyApiKey = difyApiKey;
         this.difyUser = difyUser;
+        this.difyResponseMode =
+                difyResponseMode == null ? DifyResponseMode.BLOCKING : difyResponseMode;
         this.difyTimeoutSeconds = difyTimeoutSeconds;
         this.maxContextTokens = maxContextTokens;
         this.sessionId = sessionId;
@@ -86,9 +91,14 @@ public final class AnalysisCommandOptions {
         boolean mock = false;
         boolean dify = false;
         Path log = null;
-        String difyBaseUrl = text(env.get("DIFY_BASE_URL"));
+        String difyBaseUrl = textOrDefault(env.get("DIFY_BASE_URL"), env.get("DIFY_API_URL"));
         String difyApiKey = text(env.get("DIFY_API_KEY"));
         String difyUser = textOrDefault(env.get("DIFY_USER"), DEFAULT_DIFY_USER);
+        DifyResponseMode difyResponseMode =
+                DifyResponseMode.from(
+                        textOrDefault(
+                                env.get("CODEWIKI_DIFY_RESPONSE_MODE"),
+                                env.get("DIFY_RESPONSE_MODE")));
         int difyTimeoutSeconds = DEFAULT_DIFY_TIMEOUT_SECONDS;
         int maxContextTokens =
                 parsePositiveInt(
@@ -115,6 +125,8 @@ public final class AnalysisCommandOptions {
                 case "--dify-base-url" -> difyBaseUrl = requireValue(args, ++index, arg);
                 case "--dify-api-key" -> difyApiKey = requireValue(args, ++index, arg);
                 case "--dify-user" -> difyUser = requireValue(args, ++index, arg);
+                case "--dify-response-mode" ->
+                        difyResponseMode = DifyResponseMode.from(requireValue(args, ++index, arg));
                 case "--dify-timeout-seconds" ->
                         difyTimeoutSeconds =
                                 parsePositiveInt(
@@ -168,6 +180,7 @@ public final class AnalysisCommandOptions {
                 text(difyBaseUrl),
                 text(difyApiKey),
                 textOrDefault(difyUser, DEFAULT_DIFY_USER),
+                difyResponseMode,
                 difyTimeoutSeconds,
                 maxContextTokens,
                 text(sessionId),
@@ -259,6 +272,10 @@ public final class AnalysisCommandOptions {
 
     public String difyUser() {
         return difyUser;
+    }
+
+    public DifyResponseMode difyResponseMode() {
+        return difyResponseMode;
     }
 
     public int difyTimeoutSeconds() {

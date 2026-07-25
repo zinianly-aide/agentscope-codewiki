@@ -1,0 +1,32 @@
+enterprise:
+  agent:
+    model: ${AGENT_MODEL:}
+    api-key: ${AGENT_API_KEY:}
+    base-url: ${AGENT_BASE_URL:}
+    max-iters: ${AGENT_MAX_ITERS:6}
+    execution-mode: ${AGENT_EXECUTION_MODE:deterministic}
+    max-sessions: ${AGENT_MAX_SESSIONS:10000}
+    session-expire-after-access: ${AGENT_SESSION_EXPIRE_AFTER_ACCESS:30m}
+    max-turns-per-session: ${AGENT_MAX_TURNS_PER_SESSION:10}
+    skills-root: ${AGENT_SKILLS_ROOT:skills}
+    max-skill-file-bytes: ${AGENT_MAX_SKILL_FILE_BYTES:65536}
+    max-tool-calls-per-iteration: ${AGENT_MAX_TOOL_CALLS_PER_ITERATION:3}
+    max-tool-calls-per-request: ${AGENT_MAX_TOOL_CALLS_PER_REQUEST:8}
+    python-enabled: ${AGENT_PYTHON_ENABLED:true}
+    max-model-response-bytes: ${AGENT_MAX_MODEL_RESPONSE_BYTES:1048576}
+  sms-api:
+    base-url: ${SMS_API_BASE_URL:http://127.0.0.1:8081}
+    token: ${SMS_API_TOKEN:}
+    mock-enabled: ${SMS_API_MOCK_ENABLED:true}
+  conversations:
+    max-conversations: ${AGENT_CONVERSATION_MAX:1000}
+    expire-after-access: ${AGENT_CONVERSATION_EXPIRE_AFTER_ACCESS:30m}
+    max-events-per-conversation: ${AGENT_CONVERSATION_MAX_EVENTS:200}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always

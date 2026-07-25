@@ -1,6 +1,7 @@
 package com.agentscope.codewiki.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -41,12 +42,34 @@ class BenchmarkRunnerTest {
         assertTrue(content.contains("Token Usage"));
         assertTrue(content.contains("Dify Calls"));
         assertTrue(content.contains("Review Findings Count"));
+        assertTrue(content.contains("32k Context Metrics"));
+        assertTrue(content.contains("Context Limit Tokens"));
+        assertTrue(content.contains("Max Prompt Tokens"));
+        assertEquals(
+                AnalysisCommandOptions.DEFAULT_MAX_CONTEXT_TOKENS, report.contextLimitTokens());
+        assertTrue(report.maxPromptTokens() <= report.contextLimitTokens());
         assertTrue(content.contains("Top 10 Largest Files"));
         assertTrue(content.contains("Top 10 Most Connected Symbols"));
         assertTrue(content.contains("Top 10 High Risk Modules"));
         assertTrue(content.contains("src/main/java/example/App.java"));
         assertTrue(report.fileCount() >= 2);
         assertTrue(report.repositorySizeBytes() > 0);
+    }
+
+    @Test
+    void benchmarkUsesTrackedFilesInsteadOfIgnoredGeneratedArtifacts() throws Exception {
+        Path repo = createRepository();
+        Files.writeString(repo.resolve(".gitignore"), "wiki/\n");
+        initGitRepository(repo);
+        Files.createDirectories(repo.resolve("wiki/codewiki"));
+        Files.writeString(repo.resolve("wiki/codewiki/generated.md"), "x".repeat(20_000));
+        Path output = tempDir.resolve("tracked-benchmark");
+
+        BenchmarkReport report = new BenchmarkRunner().run(repo, output);
+        String content = Files.readString(output.resolve("benchmark-report.md"));
+
+        assertEquals(4, report.fileCount());
+        assertFalse(content.contains("wiki/codewiki/generated.md"));
     }
 
     @Test
@@ -70,6 +93,7 @@ class BenchmarkRunnerTest {
         String content = Files.readString(output.resolve("benchmark-report.md"));
         assertTrue(content.contains("# Benchmark Report"));
         assertTrue(content.contains("Dify Calls"));
+        assertTrue(content.contains("32k Context Metrics"));
     }
 
     private Path createRepository() throws IOException {

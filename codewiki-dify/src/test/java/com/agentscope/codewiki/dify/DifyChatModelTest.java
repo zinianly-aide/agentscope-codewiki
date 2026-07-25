@@ -188,4 +188,41 @@ class DifyChatModelTest {
 
         assertEquals("with inputs", response.getAnswer());
     }
+
+    @Test
+    void shouldSendConfiguredStreamingResponseMode() throws Exception {
+        DifyChatModel streamingModel =
+                new DifyChatModel(nullClient(), "user-42", null, DifyResponseMode.STREAMING);
+        server.createContext(
+                "/v1/chat-messages",
+                exchange -> {
+                    String reqBody =
+                            new String(
+                                    exchange.getRequestBody().readAllBytes(),
+                                    StandardCharsets.UTF_8);
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> reqMap = MAPPER.readValue(reqBody, Map.class);
+                    assertEquals("streaming", reqMap.get("response_mode"));
+
+                    String body =
+                            "data: {\"event\":\"message\",\"message_id\":\"m\","
+                                    + "\"conversation_id\":\"c\",\"answer\":\"stream ok\","
+                                    + "\"created_at\":1}\n\n";
+                    exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                    exchange.sendResponseHeaders(200, body.getBytes(StandardCharsets.UTF_8).length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(body.getBytes(StandardCharsets.UTF_8));
+                    }
+                });
+
+        assertEquals(DifyResponseMode.STREAMING, streamingModel.getResponseMode());
+        assertEquals("stream ok", streamingModel.chat("stream"));
+    }
+
+    private DifyClient nullClient() {
+        return new DifyClient(
+                "http://localhost:" + server.getAddress().getPort(),
+                "app-key",
+                HttpClient.newHttpClient());
+    }
 }

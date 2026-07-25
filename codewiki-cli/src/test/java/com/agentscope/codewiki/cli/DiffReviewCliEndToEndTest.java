@@ -86,6 +86,9 @@ class DiffReviewCliEndToEndTest {
         assertFalse(impactJson.contains("UnchangedOnly"));
         assertFalse(impactJson.contains("untouched"));
         assertTrue(impactJson.contains("ReviewTarget") || impactJson.contains("HelloService"));
+        String markdown = Files.readString(output.resolve("diff-review.md"));
+        assertFalse(markdown.contains("UnchangedOnly"));
+        assertFalse(markdown.contains("untouched"));
     }
 
     @Test

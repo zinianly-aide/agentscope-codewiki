@@ -161,6 +161,7 @@ Useful flags:
 - `--dry-run` executes the pipeline and writes the run log without writing wiki pages or summary cache.
 - `--mock` forces local mock workflow output and does not call Dify.
 - `--dify` calls Dify. If Dify fails, the CLI logs the fallback reason and continues with the local mock analyzer.
+- `--dify-response-mode streaming` uses Dify streaming responses and is required for Dify Agent Chat apps that reject blocking mode.
 - `--log ./run.log` writes a detailed run log to a custom path.
 - `--max-context-tokens 32000` enables the context budget guard and automatic trimming.
 - `--session-id <id>` carries a Dify conversation/session id into the runtime context.
@@ -171,6 +172,7 @@ Real Dify example:
 export DIFY_BASE_URL=https://api.dify.ai
 export DIFY_API_KEY=app-xxxxxxxx
 export DIFY_USER=codewiki-local
+export CODEWIKI_DIFY_RESPONSE_MODE=streaming
 export CODEWIKI_MAX_CONTEXT_TOKENS=32000
 
 java -cp codewiki-cli/target/classes:codewiki-core/target/classes:codewiki-parser/target/classes:codewiki-retriever/target/classes:codewiki-agent/target/classes:codewiki-dify/target/classes \
@@ -178,6 +180,7 @@ java -cp codewiki-cli/target/classes:codewiki-core/target/classes:codewiki-parse
   --repo /path/to/repo \
   --output ./wiki \
   --dify \
+  --dify-response-mode streaming \
   --dify-timeout-seconds 60 \
   --session-id local-acceptance
 ```
@@ -192,10 +195,171 @@ com.agentscope.codewiki.cli.CodewikiCli analyze \
   --dify-base-url https://api.dify.ai \
   --dify-api-key app-xxxxxxxx \
   --dify-user codewiki-local \
+  --dify-response-mode streaming \
   --max-context-tokens 32000
 ```
 
 For 32k-context Dify apps, use `CODEWIKI_MAX_CONTEXT_TOKENS=32000` or `--max-context-tokens 32000`. The CLI logs token estimates for `repo_summary`, `module_summaries`, `retrieved_code_context`, `dependency_graph`, `memory_summary`, and `total`; when the budget is exceeded it preserves the user question, high-relevance code, file paths/line numbers, and module summaries while trimming low-relevance code, long comments, duplicate/oversized snippets, and old memory first.
+
+## Enterprise Single-Agent REST API
+
+`codewiki-web` now includes a minimal enterprise internal single-agent runtime baseline with deterministic and future LLM ReAct execution modes. The default remains deterministic, so the service starts and answers in mock mode without model API keys.
+
+`codewiki-web` includes this enterprise internal single-agent REST path:
+
+```text
+HTTP POST /api/agent/chat
+  -> EnterpriseAgentController
+  -> EnterpriseAgentService
+  -> enterpriseAgent (single ReAct-style agent bean, max-iters default 6)
+  -> local sms-analysis Skill
+  -> query_sms_summary Java Tool
+  -> run_python Docker Tool only when exact ratios/sorting/checks are needed
+  -> final answer
+```
+
+This first version is intentionally small: no multi-agent orchestration, Redis, Nacos, Kafka,
+vector database, MCP Gateway, WebSocket, Kubernetes, approval center, or separate sandbox service.
+The local repository currently does not contain an external AgentScope Java runtime dependency or
+stable ReAct API; the implementation follows the existing project's AgentScope-style facade pattern
+and keeps the runtime in `codewiki-web` so the build remains reproducible.
+
+### Requirements
+
+- Java 21 or newer. The project is configured for Java 21.
+- Maven 3.9+.
+- Docker only if `run_python` should execute real Python calculations.
+
+Prepare the Python image:
+
+```bash
+docker pull python:3.12-alpine
+```
+
+### Configuration
+
+No secrets are committed. Configure through environment variables or `application.yml`:
+
+```yaml
+enterprise:
+  agent:
+    model: ${AGENT_MODEL:}
+    api-key: ${AGENT_API_KEY:}
+    base-url: ${AGENT_BASE_URL:}
+    max-iters: ${AGENT_MAX_ITERS:6}
+    execution-mode: ${AGENT_EXECUTION_MODE:deterministic} # deterministic or llm-react
+    max-sessions: ${AGENT_MAX_SESSIONS:10000}
+    session-expire-after-access: ${AGENT_SESSION_EXPIRE_AFTER_ACCESS:30m}
+    max-turns-per-session: ${AGENT_MAX_TURNS_PER_SESSION:10}
+    skills-root: ${AGENT_SKILLS_ROOT:skills}
+    max-skill-file-bytes: ${AGENT_MAX_SKILL_FILE_BYTES:65536}
+  sms-api:
+    base-url: ${SMS_API_BASE_URL:http://127.0.0.1:8081}
+    token: ${SMS_API_TOKEN:}
+    mock-enabled: ${SMS_API_MOCK_ENABLED:true}
+```
+
+Mock SMS mode is enabled by default and returns fixed read-only data where `platform-b` has the
+higher sensitive-word block rate. To use a real internal API, set:
+
+```bash
+export SMS_API_MOCK_ENABLED=false
+export SMS_API_BASE_URL=http://127.0.0.1:8081
+export SMS_API_TOKEN=***
+```
+
+The read-only SMS tool calls:
+
+```text
+GET {SMS_API_BASE_URL}/internal/sms/summary?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+Authorization: Bearer ${SMS_API_TOKEN}
+Accept: application/json
+```
+
+### Build and run
+
+```bash
+mvn -pl codewiki-web -am test
+mvn -pl codewiki-web -am package
+java -jar codewiki-web/target/codewiki-web-0.0.1-SNAPSHOT.jar
+```
+
+For local development from the web module after dependencies have been built, this also works:
+
+```bash
+cd codewiki-web
+mvn spring-boot:run
+```
+
+### Chat API example
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "E10086",
+    "sessionId": "sms-analysis-001",
+    "requestId": "req-001",
+    "message": "查询2026年7月1日至7月7日短信敏感词拦截情况，判断哪个平台异常"
+  }'
+```
+
+Response shape:
+
+```json
+{
+  "requestId": "req-001",
+  "answer": "...",
+  "executionMode": "deterministic"
+}
+```
+
+Demo UI:
+
+```bash
+java -jar codewiki-mcp-server/target/codewiki-mcp-server-0.0.1-SNAPSHOT.jar
+java -jar codewiki-web/target/codewiki-web-0.0.1-SNAPSHOT.jar
+open http://127.0.0.1:8080/agent.html
+```
+
+MCP demo server:
+
+```bash
+curl http://127.0.0.1:8091/mcp/tools
+curl -X POST http://127.0.0.1:8091/mcp/tools/get_platform_owner/call \
+  -H "Content-Type: application/json" \
+  -d '{"arguments":{"platform":"platform-b"}}'
+```
+
+Async conversation + SSE:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/agent/conversations \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"E10086","sessionId":"sms-analysis-001","requestId":"req-001","message":"查询2026年7月1日至7月7日短信敏感词拦截情况，找到异常平台，并查询负责人，生成告警摘要"}'
+
+curl -N http://127.0.0.1:8080/api/agent/conversations/<conversationId>/events
+```
+
+Health endpoint:
+
+```bash
+curl http://127.0.0.1:8080/actuator/health
+```
+
+The health response includes application health, Docker availability, whether `python:3.12-alpine` is present, SMS API mock/real mode, and discovered Skill count. It intentionally omits tokens, API keys, Authorization headers, and full internal endpoint URLs.
+
+### Current security boundaries
+
+- All implemented enterprise tools are read-only.
+- `query_sms_summary` validates date format, end date, and 90-day max range; model/user input cannot
+  provide arbitrary URLs.
+- API tokens are not logged or returned in errors.
+- `run_python` uses `ProcessBuilder(List<String>)` and Docker arguments, not shell strings.
+- Docker sandbox uses `--network=none`, memory/CPU/PID limits, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root `--user=65534:65534`, read-only filesystem, tmpfs `/tmp`, no host mounts, no Docker Socket, and a 20-second timeout with 64 KB output cap.
+- The Python keyword blacklist is only a supplemental pre-check; Docker isolation and resource limits are the primary sandbox boundary.
+- Tool calls return structured `ToolResult<T>` values with success, toolName, data, source, durationMs, errorCode, and errorMessage; the agent does not parse natural-language tool errors for control flow.
+- Session isolation is a Caffeine in-memory cache keyed by `userId + sessionId`, with configurable maximum size, expire-after-access, and recent-turn cap. It is suitable for this minimal development version only.
 
 ## Tech Stack
 

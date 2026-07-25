@@ -7,6 +7,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * Low-level HTTP client for the Dify Chat API.
@@ -45,14 +46,14 @@ public class DifyClient {
 
     /** Constructor for testing — inject a custom timeout and HttpClient. */
     DifyClient(String baseUrl, String apiKey, Duration timeout, HttpClient httpClient) {
-        this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        this.baseUrl = normalizeBaseUrl(baseUrl);
         this.apiKey = apiKey;
         this.timeout = timeout;
         this.httpClient = httpClient;
     }
 
     /**
-     * Send a blocking chat request.
+     * Send a chat request.
      *
      * @param request the chat request
      * @return the chat response
@@ -82,6 +83,9 @@ public class DifyClient {
                                 + httpResponse.body());
             }
 
+            if (DifyResponseMode.STREAMING.wireValue().equals(request.getResponseMode())) {
+                return parseStreamingResponse(httpResponse.body());
+            }
             return MAPPER.readValue(httpResponse.body(), DifyChatResponse.class);
 
         } catch (InterruptedException e) {
@@ -92,5 +96,62 @@ public class DifyClient {
 
     public String getBaseUrl() {
         return baseUrl;
+    }
+
+    private DifyChatResponse parseStreamingResponse(String body) throws IOException {
+        DifyChatResponse aggregated = new DifyChatResponse();
+        StringBuilder answer = new StringBuilder();
+        for (String rawLine : body.split("\\R")) {
+            String line = rawLine.strip();
+            if (!line.startsWith("data:")) {
+                continue;
+            }
+            String payload = line.substring("data:".length()).strip();
+            if (payload.isBlank() || "[DONE]".equals(payload)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> event = MAPPER.readValue(payload, Map.class);
+            String eventName = text(event.get("event"));
+            if ("error".equals(eventName)) {
+                throw new DifyException("Dify streaming error: " + text(event.get("message")));
+            }
+            aggregated.setEvent(eventName);
+            copyIfPresent(event, "message_id", aggregated::setMessageId);
+            copyIfPresent(event, "conversation_id", aggregated::setConversationId);
+            Object createdAt = event.get("created_at");
+            if (createdAt instanceof Number number) {
+                aggregated.setCreatedAt(number.longValue());
+            }
+            String chunk = text(event.get("answer"));
+            if (!chunk.isBlank()) {
+                answer.append(chunk);
+            }
+        }
+        aggregated.setAnswer(answer.toString());
+        return aggregated;
+    }
+
+    private static void copyIfPresent(
+            Map<String, Object> event, String key, java.util.function.Consumer<String> setter) {
+        String value = text(event.get(key));
+        if (!value.isBlank()) {
+            setter.accept(value);
+        }
+    }
+
+    private static String text(Object value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private static String normalizeBaseUrl(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Dify baseUrl must not be blank");
+        }
+        String normalized = value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+        if (normalized.endsWith("/v1")) {
+            return normalized.substring(0, normalized.length() - "/v1".length());
+        }
+        return normalized;
     }
 }

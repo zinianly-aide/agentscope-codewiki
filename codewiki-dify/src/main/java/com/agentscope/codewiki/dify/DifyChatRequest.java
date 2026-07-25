@@ -6,7 +6,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Request body for Dify POST /v1/chat-messages (blocking mode).
+ * Request body for Dify POST /v1/chat-messages.
  *
  * @see <a href="https://docs.dify.ai/api-reference/chat/post-chat-messages">Dify Chat API</a>
  */
@@ -19,9 +19,9 @@ public class DifyChatRequest {
     /** Input variables for the Dify app (can be empty). */
     private Map<String, Object> inputs = new HashMap<>();
 
-    /** Must be "blocking" — streaming is not supported in this adapter. */
+    /** Dify response mode: "blocking" or "streaming". */
     @JsonProperty("response_mode")
-    private String responseMode = "blocking";
+    private String responseMode = DifyResponseMode.BLOCKING.wireValue();
 
     /** End-user identifier (required by Dify). */
     private String user;

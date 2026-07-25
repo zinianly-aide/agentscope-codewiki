@@ -11,6 +11,7 @@ import com.agentscope.codewiki.indexer.incremental.IncrementalReport;
 import com.agentscope.codewiki.parser.CodeSymbol;
 import com.agentscope.codewiki.parser.TreeSitterSymbolExtractor;
 import com.agentscope.codewiki.retriever.CodeDocument;
+import com.agentscope.codewiki.retriever.CodeDocumentChunker;
 import com.agentscope.codewiki.retriever.RetrievalCorpus;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -65,7 +66,7 @@ final class DiffReviewCliRunner {
             CodeGraph graph = new CodeGraphBuilder().build(symbols);
             ImpactReport impactReport =
                     new ImpactAnalyzer(graph).analyze(incrementalReport, changedSymbolNames);
-            DiffReviewAgent agent = createAgent(options, analyses);
+            DiffReviewAgent agent = createAgent(options, changedAnalyses);
             DiffReviewReport report = agent.review(diff, changedFiles, impactReport);
             report.writeMarkdown(options.outputDirectory());
             incrementalReport.writeJson(options.outputDirectory());
@@ -87,7 +88,9 @@ final class DiffReviewCliRunner {
     private DiffReviewAgent createAgent(
             AnalysisCommandOptions options, List<SourceFileAnalysis> analyses) {
         RetrievalCorpus corpus =
-                RetrievalCorpus.of(analyses.stream().map(SourceFileAnalysis::toDocument).toList());
+                RetrievalCorpus.of(
+                        CodeDocumentChunker.chunkAll(
+                                analyses.stream().map(SourceFileAnalysis::toDocument).toList()));
         if (!options.difyEnabled()) {
             return DiffReviewAgent.mockMode(corpus, options.maxContextTokens());
         }
@@ -101,7 +104,8 @@ final class DiffReviewCliRunner {
                         options.difyApiKey(),
                         options.difyUser(),
                         options.sessionId(),
-                        Duration.ofSeconds(options.difyTimeoutSeconds()));
+                        Duration.ofSeconds(options.difyTimeoutSeconds()),
+                        options.difyResponseMode());
         return DiffReviewAgent.difyMode(corpus, model, options.maxContextTokens());
     }
 

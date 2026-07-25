@@ -108,6 +108,43 @@ class CodewikiCliEndToEndTest {
         assertTrue(Files.readString(log).contains("Dify fallback reason:"));
     }
 
+    @Test
+    void analyzeCommandCreatesSeparateWikiModulesFromBuildFiles() throws Exception {
+        Path repo = tempDir.resolve("multi-module");
+        Files.createDirectories(repo.resolve("module-a/src/main/java/example"));
+        Files.createDirectories(repo.resolve("module-b/src/main/java/example"));
+        Files.writeString(repo.resolve("pom.xml"), "<project></project>\n");
+        Files.writeString(repo.resolve("module-a/pom.xml"), "<project></project>\n");
+        Files.writeString(repo.resolve("module-b/pom.xml"), "<project></project>\n");
+        Files.writeString(
+                repo.resolve("module-a/src/main/java/example/A.java"),
+                "package example; public class A {}\n");
+        Files.writeString(
+                repo.resolve("module-b/src/main/java/example/B.java"),
+                "package example; public class B {}\n");
+        initGitRepository(repo);
+        Path output = tempDir.resolve("multi-module-wiki");
+
+        int exitCode =
+                new CodewikiCli()
+                        .execute(
+                                new String[] {
+                                    "analyze",
+                                    "--repo",
+                                    repo.toString(),
+                                    "--output",
+                                    output.toString(),
+                                    "--mock"
+                                });
+
+        assertEquals(0, exitCode);
+        String summaryJson = Files.readString(output.resolve(".codewiki-summary.json"));
+        assertTrue(summaryJson.contains("\"name\" : \"module-a\""));
+        assertTrue(summaryJson.contains("\"name\" : \"module-b\""));
+        assertTrue(Files.readString(output.resolve("modules.md")).contains("module-a"));
+        assertTrue(Files.readString(output.resolve("modules.md")).contains("module-b"));
+    }
+
     private Path copyFixtureRepository() throws IOException {
         Path source = Path.of("src/test/resources/fixtures/small-repo");
         Path target = tempDir.resolve("small-repo");

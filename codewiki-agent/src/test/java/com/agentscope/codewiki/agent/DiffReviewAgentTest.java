@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.agentscope.codewiki.dify.DifyChatModel;
+import com.agentscope.codewiki.indexer.impact.ImpactEdge;
+import com.agentscope.codewiki.indexer.impact.ImpactNode;
 import com.agentscope.codewiki.indexer.impact.ImpactReport;
 import com.agentscope.codewiki.retriever.CodeDocument;
 import com.agentscope.codewiki.retriever.RetrievalCorpus;
@@ -69,6 +71,29 @@ class DiffReviewAgentTest {
         assertTrue(
                 report.getFindings().stream()
                         .anyMatch(f -> f.getSeverity() == ReviewSeverity.HIGH));
+    }
+
+    @Test
+    void difyPromptStaysInsideConfiguredPromptBudget() {
+        CapturingDifyChatModel dify = new CapturingDifyChatModel("INFO ok");
+        DiffReviewAgent agent = DiffReviewAgent.difyMode(oversizedRetrievalCorpus(), dify, 200);
+        ImpactReport impactReport = new ImpactReport();
+        impactReport.setRiskLevel("CRITICAL");
+        impactReport.setChangedSymbols(List.of("Large.change"));
+        impactReport.setDirectImpacts(manyImpacts(80));
+        impactReport.setTransitiveImpacts(manyImpacts(80));
+
+        agent.review(
+                "diff --git a/src/UserService.java b/src/UserService.java\n"
+                        + "+ public boolean change() { return true; }\n"
+                        + "+ "
+                        + "diff-marker-".repeat(1_000),
+                List.of("src/UserService.java"),
+                impactReport);
+
+        assertTrue(dify.lastPrompt.length() <= 200 * 4);
+        assertTrue(dify.lastPrompt.contains("trimmed for Dify prompt budget"));
+        assertFalse(dify.lastPrompt.contains("very-long-context-marker-at-the-end"));
     }
 
     @Test
@@ -170,6 +195,28 @@ class DiffReviewAgentTest {
                                 .summary("large context")
                                 .dependencies(List.of())
                                 .build()));
+    }
+
+    private List<ImpactEdge> manyImpacts(int count) {
+        return java.util.stream.IntStream.range(0, count)
+                .mapToObj(
+                        index ->
+                                new ImpactEdge(
+                                        new ImpactNode(
+                                                "source-" + index,
+                                                "Source" + index,
+                                                "class",
+                                                "src/Source" + index + ".java",
+                                                "app"),
+                                        new ImpactNode(
+                                                "target-" + index,
+                                                "Target" + index,
+                                                "class",
+                                                "src/Target" + index + ".java",
+                                                "app"),
+                                        "calls",
+                                        1))
+                .toList();
     }
 
     private static final class CapturingDifyChatModel extends DifyChatModel {

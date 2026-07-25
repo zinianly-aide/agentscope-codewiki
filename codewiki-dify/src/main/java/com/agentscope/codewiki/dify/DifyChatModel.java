@@ -19,6 +19,7 @@ public class DifyChatModel {
 
     private final DifyClient client;
     private final String user;
+    private final DifyResponseMode responseMode;
     private String conversationId;
 
     /**
@@ -40,16 +41,35 @@ public class DifyChatModel {
     /** Create a chat model with an existing conversation and custom timeout. */
     public DifyChatModel(
             String baseUrl, String apiKey, String user, String conversationId, Duration timeout) {
+        this(baseUrl, apiKey, user, conversationId, timeout, DifyResponseMode.BLOCKING);
+    }
+
+    /** Create a chat model with an existing conversation, custom timeout, and response mode. */
+    public DifyChatModel(
+            String baseUrl,
+            String apiKey,
+            String user,
+            String conversationId,
+            Duration timeout,
+            DifyResponseMode responseMode) {
         this.client = new DifyClient(baseUrl, apiKey, timeout);
         this.user = user;
         this.conversationId = conversationId;
+        this.responseMode = responseMode == null ? DifyResponseMode.BLOCKING : responseMode;
     }
 
     /** For testing — inject a pre-configured client. */
     DifyChatModel(DifyClient client, String user, String conversationId) {
+        this(client, user, conversationId, DifyResponseMode.BLOCKING);
+    }
+
+    /** For testing — inject a pre-configured client and response mode. */
+    DifyChatModel(
+            DifyClient client, String user, String conversationId, DifyResponseMode responseMode) {
         this.client = client;
         this.user = user;
         this.conversationId = conversationId;
+        this.responseMode = responseMode == null ? DifyResponseMode.BLOCKING : responseMode;
     }
 
     /**
@@ -76,6 +96,7 @@ public class DifyChatModel {
     public DifyChatResponse chat(String query, Map<String, Object> inputs) throws IOException {
         DifyChatRequest request = new DifyChatRequest(query, user);
         request.setInputs(inputs);
+        request.setResponseMode(responseMode.wireValue());
         if (conversationId != null && !conversationId.isBlank()) {
             request.setConversationId(conversationId);
         }
@@ -102,5 +123,9 @@ public class DifyChatModel {
 
     public String getUser() {
         return user;
+    }
+
+    public DifyResponseMode getResponseMode() {
+        return responseMode;
     }
 }

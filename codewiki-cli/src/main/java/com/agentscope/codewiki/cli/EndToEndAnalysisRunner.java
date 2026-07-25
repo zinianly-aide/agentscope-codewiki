@@ -12,6 +12,7 @@ import com.agentscope.codewiki.parser.RepositoryMetadata;
 import com.agentscope.codewiki.parser.RepositoryScanner;
 import com.agentscope.codewiki.parser.TreeSitterSymbolExtractor;
 import com.agentscope.codewiki.retriever.CodeDocument;
+import com.agentscope.codewiki.retriever.CodeDocumentChunker;
 import com.agentscope.codewiki.retriever.ContextPack;
 import com.agentscope.codewiki.retriever.HybridRetriever;
 import com.agentscope.codewiki.retriever.RetrievalCorpus;
@@ -24,8 +25,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -161,7 +164,7 @@ final class EndToEndAnalysisRunner {
         summary.setFileCount(metadata.getFileCount());
         summary.setReadmePath(metadata.getReadmeLocation());
         summary.setBuildFiles(metadata.getBuildFiles());
-        summary.setModules(List.of(createModule(metadata, sourceFiles)));
+        summary.setModules(createModules(metadata, sourceFiles));
         summary.setSummary(
                 "CodeWiki analyzed "
                         + metadata.getRepositoryName()
@@ -173,27 +176,103 @@ final class EndToEndAnalysisRunner {
         return summary;
     }
 
-    private ModuleSummary createModule(
+    private List<ModuleSummary> createModules(
             RepositoryMetadata metadata, List<SourceFileAnalysis> sourceFiles) {
-        ModuleSummary module = new ModuleSummary();
-        module.setName(metadata.getRepositoryName());
-        module.setPath(".");
-        module.setBuildSystem(String.join(", ", metadata.getBuildFiles()));
-        module.setFiles(sourceFiles.stream().map(SourceFileAnalysis::toFileSummary).toList());
-        module.setSummary(
-                "Repository module containing "
-                        + sourceFiles.size()
-                        + " supported source files for analysis.");
-        return module;
+        Set<String> modulePaths = modulePaths(metadata);
+        boolean hasChildModules = modulePaths.stream().anyMatch(path -> !".".equals(path));
+        List<ModuleSummary> modules = new ArrayList<>();
+        for (String modulePath : modulePaths) {
+            List<SourceFileAnalysis> moduleFiles =
+                    sourceFiles.stream()
+                            .filter(file -> belongsToModule(file.relativePath(), modulePath))
+                            .toList();
+            if (".".equals(modulePath) && hasChildModules) {
+                moduleFiles =
+                        moduleFiles.stream()
+                                .filter(
+                                        file ->
+                                                modulePaths.stream()
+                                                        .filter(path -> !".".equals(path))
+                                                        .noneMatch(
+                                                                path ->
+                                                                        belongsToModule(
+                                                                                file.relativePath(),
+                                                                                path)))
+                                .toList();
+            }
+            if (moduleFiles.isEmpty() && (hasChildModules || !".".equals(modulePath))) {
+                continue;
+            }
+            ModuleSummary module = new ModuleSummary();
+            module.setName(moduleName(metadata.getRepositoryName(), modulePath));
+            module.setPath(modulePath);
+            module.setBuildSystem(buildFilesForModule(metadata, modulePath));
+            module.setFiles(moduleFiles.stream().map(SourceFileAnalysis::toFileSummary).toList());
+            module.setSummary(
+                    "Module "
+                            + module.getName()
+                            + " containing "
+                            + moduleFiles.size()
+                            + " supported source files for analysis.");
+            modules.add(module);
+        }
+        if (modules.isEmpty()) {
+            ModuleSummary module = new ModuleSummary();
+            module.setName(metadata.getRepositoryName());
+            module.setPath(".");
+            module.setBuildSystem(String.join(", ", metadata.getBuildFiles()));
+            module.setFiles(sourceFiles.stream().map(SourceFileAnalysis::toFileSummary).toList());
+            module.setSummary(
+                    "Repository module containing "
+                            + sourceFiles.size()
+                            + " supported source files for analysis.");
+            modules.add(module);
+        }
+        return modules;
     }
 
     private ContextPack buildRetrievalContext(List<SourceFileAnalysis> sourceFiles) {
         List<CodeDocument> documents =
                 sourceFiles.stream().map(SourceFileAnalysis::toDocument).toList();
-        return new HybridRetriever(RetrievalCorpus.of(documents))
+        return new HybridRetriever(RetrievalCorpus.of(CodeDocumentChunker.chunkAll(documents)))
                 .retrieve(
                         "Generate repository wiki overview architecture modules dataflow review",
                         6);
+    }
+
+    private Set<String> modulePaths(RepositoryMetadata metadata) {
+        Set<String> paths = new LinkedHashSet<>();
+        for (String buildFile :
+                metadata.getBuildFiles() == null ? List.<String>of() : metadata.getBuildFiles()) {
+            Path parent = Path.of(buildFile).getParent();
+            paths.add(parent == null ? "." : parent.toString().replace('\\', '/'));
+        }
+        if (paths.isEmpty()) {
+            paths.add(".");
+        }
+        return paths;
+    }
+
+    private boolean belongsToModule(String relativePath, String modulePath) {
+        return ".".equals(modulePath)
+                || relativePath.equals(modulePath)
+                || relativePath.startsWith(modulePath + "/");
+    }
+
+    private String moduleName(String repositoryName, String modulePath) {
+        if (".".equals(modulePath)) {
+            return repositoryName;
+        }
+        Path path = Path.of(modulePath);
+        Path name = path.getFileName();
+        return name == null ? modulePath : name.toString();
+    }
+
+    private String buildFilesForModule(RepositoryMetadata metadata, String modulePath) {
+        return String.join(
+                ", ",
+                (metadata.getBuildFiles() == null ? List.<String>of() : metadata.getBuildFiles())
+                        .stream().filter(path -> belongsToModule(path, modulePath)).toList());
     }
 
     private String invokeWorkflow(
@@ -213,7 +292,8 @@ final class EndToEndAnalysisRunner {
                             options.difyApiKey(),
                             options.difyUser(),
                             options.sessionId(),
-                            Duration.ofSeconds(options.difyTimeoutSeconds()));
+                            Duration.ofSeconds(options.difyTimeoutSeconds()),
+                            options.difyResponseMode());
             return model.chat(budgetReport.prompt(), budgetReport.asDifyInputs()).getAnswer();
         } catch (RuntimeException | IOException exception) {
             String reason = exception.getClass().getSimpleName() + ": " + exception.getMessage();
@@ -288,11 +368,15 @@ final class EndToEndAnalysisRunner {
 
     private record SourceFileAnalysis(Path repo, Path file, List<CodeSymbol> symbols) {
 
+        private String relativePath() {
+            return repo.relativize(file).toString().replace('\\', '/');
+        }
+
         FileSummary toFileSummary() {
             FileSummary summary = new FileSummary();
-            Path relative = repo.relativize(file);
+            String relative = relativePath();
             summary.setName(file.getFileName().toString());
-            summary.setPath(relative.toString());
+            summary.setPath(relative);
             summary.setLanguage(language(file));
             summary.setLinesOfCode(countLines(file));
             summary.setClasses(symbols.stream().map(SourceFileAnalysis::toClassSummary).toList());
@@ -301,11 +385,11 @@ final class EndToEndAnalysisRunner {
         }
 
         CodeDocument toDocument() {
-            Path relative = repo.relativize(file);
+            String relative = relativePath();
             return CodeDocument.builder()
-                    .id(relative.toString())
+                    .id(relative)
                     .module(repo.getFileName().toString())
-                    .path(relative.toString())
+                    .path(relative)
                     .language(language(file))
                     .content(annotatedContent(relative, symbols, read(file)))
                     .summary("Parsed symbols: " + symbolNames())
@@ -334,7 +418,7 @@ final class EndToEndAnalysisRunner {
         }
 
         private static String annotatedContent(
-                Path relative, List<CodeSymbol> symbols, String content) {
+                String relative, List<CodeSymbol> symbols, String content) {
             StringBuilder builder = new StringBuilder();
             builder.append("file=").append(relative).append(System.lineSeparator());
             for (CodeSymbol symbol : symbols) {
