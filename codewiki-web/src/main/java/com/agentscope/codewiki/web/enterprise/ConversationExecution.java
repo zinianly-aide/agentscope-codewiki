@@ -11,6 +11,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ConversationExecution {
     private final String conversationId;
     private final String requestId;
+    private final String question;
+    private final long startedAtMs = System.currentTimeMillis();
+    private volatile long completedAtMs;
     private final int maxEvents;
     private final AtomicLong sequence = new AtomicLong();
     private final List<AgentProgressEvent> events = new ArrayList<>();
@@ -19,8 +22,14 @@ public class ConversationExecution {
     private volatile String answer = "";
 
     public ConversationExecution(String conversationId, String requestId, int maxEvents) {
+        this(conversationId, requestId, "", maxEvents);
+    }
+
+    public ConversationExecution(
+            String conversationId, String requestId, String question, int maxEvents) {
         this.conversationId = conversationId;
         this.requestId = requestId;
+        this.question = question == null ? "" : question;
         this.maxEvents = maxEvents;
     }
 
@@ -86,12 +95,24 @@ public class ConversationExecution {
         return requestId;
     }
 
+    public String question() {
+        return question;
+    }
+
     public ConversationStatus status() {
         return status;
     }
 
     public void status(ConversationStatus status) {
         this.status = status;
+        if (status == ConversationStatus.COMPLETED || status == ConversationStatus.FAILED) {
+            this.completedAtMs = System.currentTimeMillis();
+        }
+    }
+
+    public long durationMs() {
+        long end = completedAtMs == 0 ? System.currentTimeMillis() : completedAtMs;
+        return Math.max(0, end - startedAtMs);
     }
 
     public String answer() {

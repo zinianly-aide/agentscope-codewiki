@@ -402,3 +402,93 @@ The health response includes application health, Docker availability, whether `p
 ## License
 
 Apache 2.0
+
+
+## Enterprise Agent Production-Demo Architecture
+
+`codewiki-web` now includes a single-process enterprise Agent demo with synchronous chat, asynchronous Conversation execution, SSE progress, local Java tools, MCP tools, Python sandbox tools, tool retry, tool metrics, tool audit, hot-reloadable Skills, and a vanilla static UI at `/agent.html`. It remains a Java 21 + Spring Boot monolith and does not require Redis, Kafka, RabbitMQ, Nacos, Kubernetes, a vector database, or React/Vue.
+
+### Architecture
+
+```mermaid
+graph TD
+User --> Controller
+Controller --> Agent
+Agent --> Skill
+Agent --> Registry
+Registry --> LocalTool
+Registry --> MCPTool
+Registry --> PythonTool
+LocalTool --> Agent
+MCPTool --> Agent
+PythonTool --> Agent
+Agent --> SSE
+Agent --> Response
+```
+
+### Execution Flow
+
+1. `POST /api/agent/chat` runs synchronously and returns the final answer.
+2. `POST /api/agent/conversations` creates a bounded in-memory Conversation and submits Agent work to `ThreadPoolTaskExecutor`.
+3. `GET /api/agent/conversations/{conversationId}/events` replays historical events and then streams live SSE events.
+4. `GET /api/agent/conversations/{conversationId}` returns current status, answer, and events.
+5. `GET /api/agent/conversations/{conversationId}/export` returns a JSON troubleshooting bundle with question, answer, and events.
+
+### Tool Flow
+
+`AgentToolRegistry` is the single tool entrypoint. It enforces registration-only tool execution, a 64KB argument limit, `ToolRetryExecutor`, `ToolMetricsRegistry`, and `ToolAuditService`. Retry defaults are `maxAttempts=2` and `retryInterval=500ms`, and only timeout/connectivity style failures are retried. Parameter errors, authorization failures, validation failures, and 404-style failures are not retried.
+
+### MCP Flow
+
+`codewiki-mcp-server` runs on port `8091` and exposes:
+
+- `GET /mcp/tools`
+- `POST /mcp/tools/{toolName}/call`
+- `GET /actuator/health`
+
+`codewiki-web` discovers MCP tools through `HttpMcpClient`, registers them as `McpAgentTool`, and can refresh discovery without restart:
+
+```bash
+curl -X POST http://127.0.0.1:18083/internal/mcp/refresh
+```
+
+### Conversation Flow
+
+Conversation state is Caffeine-backed in memory (`maximumSize=1000`, `expireAfterAccess=30m` by default). Each Conversation stores request id, question, answer, bounded events, duration, and status. A scheduled cleanup runs hourly and calls Caffeine cleanup; no Redis is required.
+
+### SSE Flow
+
+SSE events expose only safe execution summaries such as `REQUEST_ACCEPTED`, `SKILL_MATCHED`, `TOOL_CALL_STARTED`, `TOOL_RETRY`, `MCP_TOOL_CALL_COMPLETED`, and `AGENT_COMPLETED`. Events include monotonic `sequence`, `eventId`, stage, message, status, progress, and sanitized metadata. Hidden reasoning, full system prompts, Skill source text, API keys, tokens, and Authorization values are not emitted.
+
+### Skill Flow
+
+`SkillRepository` reads local `skills/*/SKILL.md` with path traversal protection, strict UTF-8, size limits, and safe skill names. `SkillHotReloadService` refreshes descriptors every 30 seconds, so updates to `SKILL.md` are visible without restarting the web app.
+
+### llm-react Flow
+
+Set these variables to enable OpenAI Chat Completions compatible `llm-react` mode:
+
+```bash
+export AGENT_EXECUTION_MODE=llm-react
+export AGENT_MODEL=<model>
+export AGENT_BASE_URL=<openai-compatible-base-url>
+export AGENT_API_KEY=<key>
+```
+
+The model client sends standard Chat Completions fields: `messages`, `tools`, `tool_choice`, and receives `tool_calls`. Compatible providers include OpenAI, Dify OpenAI-compatible endpoints, OneAPI, LiteLLM, OpenRouter, vLLM, LM Studio, and Ollama OpenAI-compatible endpoints.
+
+### Local Verification
+
+```bash
+mvn spotless:apply
+mvn spotless:check
+mvn test
+mvn package
+
+java -jar codewiki-mcp-server/target/codewiki-mcp-server-0.0.1-SNAPSHOT.jar
+java -Dserver.port=18083 -jar codewiki-web/target/codewiki-web-0.0.1-SNAPSHOT.jar
+
+curl -sS http://127.0.0.1:8091/mcp/tools
+curl -sS http://127.0.0.1:18083/actuator/health
+curl -I http://127.0.0.1:18083/agent.html
+```

@@ -36,6 +36,12 @@
     ['conversationId: ' + conversationId, 'requestId: ' + requestId].forEach((t) => {
       const span = document.createElement('span'); span.textContent = t; meta.appendChild(span);
     });
+    const exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.className = 'secondary';
+    exportBtn.textContent = '导出 Conversation';
+    exportBtn.addEventListener('click', () => exportConversation(conversationId));
+    card.appendChild(exportBtn);
     const events = document.createElement('div');
     events.className = 'events';
     card.appendChild(events);
@@ -97,9 +103,23 @@
       const meta = state.current.querySelector('.meta');
       const status = document.createElement('span');
       status.className = 'badge ' + (data.status === 'COMPLETED' ? 'ok' : 'fail');
-      status.textContent = data.status + ' · 总耗时 ' + (Date.now() - state.startedAt) + 'ms';
+      status.textContent = data.status + ' · Conversation Duration ' + (Date.now() - state.startedAt) + 'ms';
       meta.appendChild(status);
     }
+  }
+
+
+  async function exportConversation(conversationId) {
+    const res = await fetch('/api/agent/conversations/' + encodeURIComponent(conversationId) + '/export');
+    if (!res.ok) { appendMessage('agent', '导出失败：HTTP ' + res.status); return; }
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = conversationId + '-export.json';
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function send() {

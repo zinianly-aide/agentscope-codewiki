@@ -38,6 +38,9 @@ public class McpController {
                                     toolName, "TOOL_NOT_FOUND", "unknown MCP tool"));
         }
         McpToolCallResponse<?> response = registry.call(toolName, request.arguments());
+        if ("INVALID_ARGUMENTS".equals(response.errorCode())) {
+            return ResponseEntity.badRequest().body(response);
+        }
         return ResponseEntity.ok(response);
     }
 

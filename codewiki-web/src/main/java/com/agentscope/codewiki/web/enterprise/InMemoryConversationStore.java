@@ -19,10 +19,11 @@ public class InMemoryConversationStore implements ConversationStore {
     }
 
     @Override
-    public ConversationExecution create(String requestId) {
+    public ConversationExecution create(String requestId, String question) {
         String id = "conv-" + UUID.randomUUID().toString().substring(0, 8);
         ConversationExecution execution =
-                new ConversationExecution(id, requestId, properties.getMaxEventsPerConversation());
+                new ConversationExecution(
+                        id, requestId, question, properties.getMaxEventsPerConversation());
         cache.put(id, execution);
         return execution;
     }
@@ -30,5 +31,10 @@ public class InMemoryConversationStore implements ConversationStore {
     @Override
     public Optional<ConversationExecution> find(String conversationId) {
         return Optional.ofNullable(cache.getIfPresent(conversationId));
+    }
+
+    @Override
+    public void cleanupExpired() {
+        cache.cleanUp();
     }
 }

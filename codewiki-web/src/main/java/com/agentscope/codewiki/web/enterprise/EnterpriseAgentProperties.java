@@ -21,6 +21,7 @@ public class EnterpriseAgentProperties {
     private boolean pythonEnabled = true;
     private long maxModelResponseBytes = 1024 * 1024;
     private Async async = new Async();
+    private Retry retry = new Retry();
 
     public String getModel() {
         return model;
@@ -147,6 +148,36 @@ public class EnterpriseAgentProperties {
 
     public void setAsync(Async async) {
         this.async = async == null ? new Async() : async;
+    }
+
+    public Retry getRetry() {
+        return retry;
+    }
+
+    public void setRetry(Retry retry) {
+        this.retry = retry == null ? new Retry() : retry;
+    }
+
+    public static class Retry {
+        private int maxAttempts = 2;
+        private java.time.Duration retryInterval = java.time.Duration.ofMillis(500);
+
+        public int getMaxAttempts() {
+            return maxAttempts;
+        }
+
+        public void setMaxAttempts(int maxAttempts) {
+            this.maxAttempts = Math.max(1, Math.min(5, maxAttempts));
+        }
+
+        public java.time.Duration getRetryInterval() {
+            return retryInterval;
+        }
+
+        public void setRetryInterval(java.time.Duration retryInterval) {
+            this.retryInterval =
+                    retryInterval == null ? java.time.Duration.ofMillis(500) : retryInterval;
+        }
     }
 
     public static class Async {

@@ -14,6 +14,9 @@ enterprise:
     max-tool-calls-per-request: ${AGENT_MAX_TOOL_CALLS_PER_REQUEST:8}
     python-enabled: ${AGENT_PYTHON_ENABLED:true}
     max-model-response-bytes: ${AGENT_MAX_MODEL_RESPONSE_BYTES:1048576}
+    retry:
+      max-attempts: ${AGENT_TOOL_RETRY_MAX_ATTEMPTS:2}
+      retry-interval: ${AGENT_TOOL_RETRY_INTERVAL:500ms}
     async:
       core-pool-size: ${AGENT_ASYNC_CORE_POOL_SIZE:4}
       max-pool-size: ${AGENT_ASYNC_MAX_POOL_SIZE:8}

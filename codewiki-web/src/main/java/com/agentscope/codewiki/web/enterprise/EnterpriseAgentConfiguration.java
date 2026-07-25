@@ -8,10 +8,12 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /** Spring beans for the single enterprise ReAct agent and its toolkit. */
 @Configuration
+@EnableScheduling
 @EnableConfigurationProperties({
     EnterpriseAgentProperties.class,
     SmsApiProperties.class,
@@ -54,13 +56,34 @@ public class EnterpriseAgentConfiguration {
     }
 
     @Bean
-    AgentToolRegistry agentToolRegistry(EnterpriseTools enterpriseTools, McpClient mcpClient) {
-        AgentToolRegistry registry = new AgentToolRegistry();
+    ToolMetricsRegistry toolMetricsRegistry() {
+        return new ToolMetricsRegistry();
+    }
+
+    @Bean
+    ToolAuditService toolAuditService() {
+        return new ToolAuditService();
+    }
+
+    @Bean
+    ToolRetryExecutor toolRetryExecutor(EnterpriseAgentProperties properties) {
+        return new ToolRetryExecutor(
+                properties.getRetry().getMaxAttempts(),
+                properties.getRetry().getRetryInterval().toMillis());
+    }
+
+    @Bean
+    AgentToolRegistry agentToolRegistry(
+            EnterpriseTools enterpriseTools,
+            McpClient mcpClient,
+            ToolRetryExecutor toolRetryExecutor,
+            ToolMetricsRegistry toolMetricsRegistry,
+            ToolAuditService toolAuditService) {
+        AgentToolRegistry registry =
+                new AgentToolRegistry(toolRetryExecutor, toolMetricsRegistry, toolAuditService);
         registry.register(new LocalSmsSummaryTool(enterpriseTools));
         registry.register(new LocalPythonTool(enterpriseTools));
-        for (McpToolDescriptor descriptor : mcpClient.discoverTools().tools()) {
-            registry.register(new McpAgentTool(descriptor, mcpClient));
-        }
+        registry.refreshMcpTools(mcpClient.discoverTools().tools(), mcpClient);
         return registry;
     }
 
@@ -135,6 +158,16 @@ public class EnterpriseAgentConfiguration {
     }
 
     @Bean
+    ConversationCleanupService conversationCleanupService(ConversationStore conversationStore) {
+        return new ConversationCleanupService(conversationStore);
+    }
+
+    @Bean
+    SkillHotReloadService skillHotReloadService(SkillRepository skillRepository) {
+        return new SkillHotReloadService(skillRepository);
+    }
+
+    @Bean
     ThreadPoolTaskExecutor enterpriseAgentTaskExecutor(EnterpriseAgentProperties properties) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setThreadNamePrefix("enterprise-agent-");
@@ -159,8 +192,13 @@ public class EnterpriseAgentConfiguration {
             DockerHealthService dockerHealthService,
             SmsApiProperties smsApiProperties,
             SkillRepository skillRepository,
-            McpClient mcpClient) {
+            McpClient mcpClient,
+            AgentToolRegistry agentToolRegistry) {
         return new EnterpriseHealthIndicator(
-                dockerHealthService, smsApiProperties, skillRepository, mcpClient);
+                dockerHealthService,
+                smsApiProperties,
+                skillRepository,
+                mcpClient,
+                agentToolRegistry);
     }
 }

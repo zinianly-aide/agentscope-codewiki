@@ -9,16 +9,19 @@ public class EnterpriseHealthIndicator implements HealthIndicator {
     private final SmsApiProperties smsApiProperties;
     private final SkillRepository skillRepository;
     private final McpClient mcpClient;
+    private final AgentToolRegistry agentToolRegistry;
 
     public EnterpriseHealthIndicator(
             DockerHealthService dockerHealthService,
             SmsApiProperties smsApiProperties,
             SkillRepository skillRepository,
-            McpClient mcpClient) {
+            McpClient mcpClient,
+            AgentToolRegistry agentToolRegistry) {
         this.dockerHealthService = dockerHealthService;
         this.smsApiProperties = smsApiProperties;
         this.skillRepository = skillRepository;
         this.mcpClient = mcpClient;
+        this.agentToolRegistry = agentToolRegistry;
     }
 
     @Override
@@ -30,6 +33,8 @@ public class EnterpriseHealthIndicator implements HealthIndicator {
                 .withDetail("skillCount", skillRepository.skillCount())
                 .withDetail("mcpDemoStatus", mcpClient.available() ? "available" : "unavailable")
                 .withDetail("mcpDemoDetail", mcpClient.status())
+                .withDetail("toolMetrics", agentToolRegistry.metricsSnapshot())
+                .withDetail("recentToolAudits", agentToolRegistry.recentAudits(5))
                 .build();
     }
 }

@@ -34,7 +34,7 @@ public class ConversationService {
     }
 
     public ConversationExecution start(ChatRequest request) {
-        ConversationExecution execution = store.create(request.requestId());
+        ConversationExecution execution = store.create(request.requestId(), request.message());
         execution.append(
                 AgentEventType.REQUEST_ACCEPTED,
                 "请求已接收",

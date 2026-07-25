@@ -81,5 +81,13 @@ class McpControllerTest {
                                 .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string(org.hamcrest.Matchers.not(containsString("trace"))));
+        mockMvc.perform(
+                        post("/mcp/tools/get_platform_owner/call")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"arguments\":{}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_ARGUMENTS"))
+                .andExpect(
+                        content().string(org.hamcrest.Matchers.not(containsString("Exception"))));
     }
 }

@@ -290,6 +290,13 @@ public class EnterpriseReActAgent {
         }
         emit(
                 context,
+                AgentEventType.MODEL_CALL_STARTED,
+                "准备生成回答",
+                "正在整理最终答案",
+                AgentEventStatus.RUNNING,
+                90);
+        emit(
+                context,
                 AgentEventType.ANSWER_GENERATION_STARTED,
                 "整理最终回答",
                 "正在整理可审计的最终结果",
@@ -323,6 +330,13 @@ public class EnterpriseReActAgent {
                             + " 本次能力只读。";
             emit(
                     context,
+                    AgentEventType.MODEL_CALL_COMPLETED,
+                    "回答生成完成",
+                    "已完成最终答案整理",
+                    AgentEventStatus.COMPLETED,
+                    96);
+            emit(
+                    context,
                     AgentEventType.ANSWER_GENERATION_COMPLETED,
                     "最终回答已生成",
                     "已生成最终答案",
@@ -338,6 +352,13 @@ public class EnterpriseReActAgent {
                         python,
                         ownerResult,
                         alertResult);
+        emit(
+                context,
+                AgentEventType.MODEL_CALL_COMPLETED,
+                "回答生成完成",
+                "已完成最终答案整理",
+                AgentEventStatus.COMPLETED,
+                96);
         emit(
                 context,
                 AgentEventType.ANSWER_GENERATION_COMPLETED,

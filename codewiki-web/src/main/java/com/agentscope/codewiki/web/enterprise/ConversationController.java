@@ -46,6 +46,22 @@ public class ConversationController {
                 execution.snapshotEvents());
     }
 
+    @GetMapping("/{conversationId}/export")
+    public ConversationExportResponse export(@PathVariable String conversationId) {
+        ConversationExecution execution =
+                service.find(conversationId)
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "conversation not found"));
+        return new ConversationExportResponse(
+                execution.conversationId(),
+                execution.requestId(),
+                execution.question(),
+                execution.answer(),
+                execution.snapshotEvents());
+    }
+
     @GetMapping("/{conversationId}/events")
     public SseEmitter events(@PathVariable String conversationId) {
         ConversationExecution execution =
@@ -64,10 +80,13 @@ public class ConversationController {
                                 .data(event));
             }
             execution.subscribe(emitter);
-            emitter.send(
-                    SseEmitter.event()
-                            .name(AgentEventType.HEARTBEAT.name())
-                            .data(java.util.Map.of("conversationId", conversationId)));
+            execution.append(
+                    AgentEventType.HEARTBEAT,
+                    "保持 SSE 连接",
+                    "SSE 连接已建立，Agent 执行不会因断开而终止",
+                    AgentEventStatus.RUNNING,
+                    execution.status() == ConversationStatus.RUNNING ? 99 : 100,
+                    java.util.Map.of());
         } catch (Exception ex) {
             emitter.completeWithError(ex);
         }
