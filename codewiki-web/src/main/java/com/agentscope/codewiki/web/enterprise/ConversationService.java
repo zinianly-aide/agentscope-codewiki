@@ -4,7 +4,9 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.MDC;
 import org.springframework.core.task.TaskRejectedException;
+import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.web.server.ResponseStatusException;
 
 public class ConversationService {
     private final ConversationStore store;
@@ -34,6 +36,15 @@ public class ConversationService {
     }
 
     public ConversationExecution start(ChatRequest request) {
+        Optional<ConversationExecution> existing = store.findByRequestId(request.requestId());
+        if (existing.isPresent()) {
+            ConversationExecution execution = existing.get();
+            if (!execution.question().equals(request.message())) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT, "requestId already used for a different message");
+            }
+            return execution;
+        }
         ConversationExecution execution = store.create(request.requestId(), request.message());
         execution.append(
                 AgentEventType.REQUEST_ACCEPTED,

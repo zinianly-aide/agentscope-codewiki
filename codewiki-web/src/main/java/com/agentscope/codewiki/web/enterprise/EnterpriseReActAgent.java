@@ -386,15 +386,15 @@ public class EnterpriseReActAgent {
                 + summary.startDate()
                 + " 至 "
                 + summary.endDate()
-                + "\n总提交量："
+                + "\n总提交量 "
                 + summary.totalSubmitted()
-                + "\n成功量和成功率："
+                + "\n成功量 "
                 + summary.totalSuccess()
-                + "，"
+                + "，成功率 "
                 + percent(summary.totalSuccess(), summary.totalSubmitted())
-                + "\n敏感词拦截量和拦截率："
+                + "\n敏感词拦截量 "
                 + summary.sensitiveBlocked()
-                + "，"
+                + "，整体拦截率 "
                 + percent(summary.sensitiveBlocked(), summary.totalSubmitted())
                 + "\n异常平台："
                 + abnormal.platform()

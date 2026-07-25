@@ -70,6 +70,18 @@ class ProductionEnhancementTest {
     }
 
     @Test
+    void conversationStoreIndexesRequestIdForIdempotency() {
+        ConversationProperties props = new ConversationProperties();
+        InMemoryConversationStore store = new InMemoryConversationStore(props);
+        ConversationExecution first = store.create("req-idem", "same question");
+
+        assertTrue(store.findByRequestId("req-idem").isPresent());
+        assertEquals(
+                first.conversationId(), store.findByRequestId("req-idem").get().conversationId());
+        assertEquals("same question", store.findByRequestId("req-idem").get().question());
+    }
+
+    @Test
     void skillHotReloadSeesChangedSkillFiles() throws Exception {
         Path root = Files.createTempDirectory("skills");
         Path skill = Files.createDirectories(root.resolve("demo"));

@@ -8,10 +8,16 @@ import java.util.UUID;
 public class InMemoryConversationStore implements ConversationStore {
     private final ConversationProperties properties;
     private final Cache<String, ConversationExecution> cache;
+    private final Cache<String, String> requestIndex;
 
     public InMemoryConversationStore(ConversationProperties properties) {
         this.properties = properties;
         this.cache =
+                Caffeine.newBuilder()
+                        .maximumSize(properties.getMaxConversations())
+                        .expireAfterAccess(properties.getExpireAfterAccess())
+                        .build();
+        this.requestIndex =
                 Caffeine.newBuilder()
                         .maximumSize(properties.getMaxConversations())
                         .expireAfterAccess(properties.getExpireAfterAccess())
@@ -25,6 +31,7 @@ public class InMemoryConversationStore implements ConversationStore {
                 new ConversationExecution(
                         id, requestId, question, properties.getMaxEventsPerConversation());
         cache.put(id, execution);
+        requestIndex.put(requestId, id);
         return execution;
     }
 
@@ -34,7 +41,21 @@ public class InMemoryConversationStore implements ConversationStore {
     }
 
     @Override
+    public Optional<ConversationExecution> findByRequestId(String requestId) {
+        String conversationId = requestIndex.getIfPresent(requestId);
+        if (conversationId == null) {
+            return Optional.empty();
+        }
+        Optional<ConversationExecution> execution = find(conversationId);
+        if (execution.isEmpty()) {
+            requestIndex.invalidate(requestId);
+        }
+        return execution;
+    }
+
+    @Override
     public void cleanupExpired() {
         cache.cleanUp();
+        requestIndex.cleanUp();
     }
 }

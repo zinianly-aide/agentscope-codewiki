@@ -11,5 +11,9 @@ public interface ConversationStore {
 
     Optional<ConversationExecution> find(String conversationId);
 
+    default Optional<ConversationExecution> findByRequestId(String requestId) {
+        return Optional.empty();
+    }
+
     default void cleanupExpired() {}
 }
