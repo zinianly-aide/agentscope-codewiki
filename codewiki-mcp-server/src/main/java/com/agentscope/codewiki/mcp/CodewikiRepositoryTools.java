@@ -1,21 +1,12 @@
 package com.agentscope.codewiki.mcp;
 
-import com.agentscope.codewiki.indexer.graph.CodeGraph;
-import com.agentscope.codewiki.indexer.graph.CodeGraphBuilder;
 import com.agentscope.codewiki.indexer.graph.GraphNode;
 import com.agentscope.codewiki.indexer.impact.ImpactAnalyzer;
 import com.agentscope.codewiki.indexer.impact.ImpactReport;
-import com.agentscope.codewiki.parser.CodeSymbol;
-import com.agentscope.codewiki.parser.TreeSitterSymbolExtractor;
 import com.agentscope.codewiki.retriever.CodeDocument;
-import com.agentscope.codewiki.retriever.CodeDocumentChunker;
-import com.agentscope.codewiki.retriever.HybridRetriever;
-import com.agentscope.codewiki.retriever.RetrievalCorpus;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -38,16 +29,18 @@ public class CodewikiRepositoryTools {
             Set.of(".git", ".idea", "node_modules", "target", "build", "dist", ".venv", "venv");
     private final Path root;
     private final Path bridgeScript;
+    private final RepositorySnapshotIndex index;
 
     CodewikiRepositoryTools(String configuredRoot, boolean enabled) {
-        this(configuredRoot, enabled, "");
+        this(configuredRoot, enabled, "", "");
     }
 
     @Autowired
     public CodewikiRepositoryTools(
             @Value("${codewiki.analysis.repository-root:}") String configuredRoot,
             @Value("${codewiki.analysis.enabled:false}") boolean enabled,
-            @Value("${codewiki.analysis.tree-sitter-bridge:}") String configuredBridge) {
+            @Value("${codewiki.analysis.tree-sitter-bridge:}") String configuredBridge,
+            @Value("${codewiki.analysis.cache-file:}") String configuredCache) {
         Path resolved = null;
         if (enabled && configuredRoot != null && !configuredRoot.isBlank()) {
             try {
@@ -64,6 +57,28 @@ public class CodewikiRepositoryTools {
                 configuredBridge == null || configuredBridge.isBlank()
                         ? null
                         : Path.of(configuredBridge).toAbsolutePath().normalize();
+        Path diskCache = null;
+        if (root != null && configuredCache != null && !configuredCache.isBlank()) {
+            Path requested = Path.of(configuredCache).toAbsolutePath().normalize();
+            if (Files.isSymbolicLink(requested)) {
+                throw new IllegalArgumentException(
+                        "analysis cache file must not be a symbolic link");
+            }
+            Path parent;
+            try {
+                parent = requested.getParent().toRealPath();
+            } catch (IOException ex) {
+                throw new IllegalArgumentException("analysis cache parent must exist", ex);
+            }
+            Path candidate = parent.resolve(requested.getFileName());
+            // The cache contains extracted source code and must never be inside the indexed repo.
+            if (candidate.startsWith(root)) {
+                throw new IllegalArgumentException(
+                        "analysis cache file must be outside repository root");
+            }
+            diskCache = candidate;
+        }
+        index = root == null ? null : new RepositorySnapshotIndex(root, bridgeScript, diskCache);
     }
 
     public List<McpToolDescriptor> descriptors() {
@@ -79,6 +94,10 @@ public class CodewikiRepositoryTools {
                         "codewiki_search_symbol",
                         "Find symbols and source locations",
                         schema("query")),
+                new McpToolDescriptor(
+                        "codewiki_index_status",
+                        "Report active source files, cached symbols and incremental parser work",
+                        Map.of("type", "object", "properties", Map.of())),
                 new McpToolDescriptor(
                         "codewiki_analyze_impact",
                         "Find downstream dependents of a changed file or symbol",
@@ -111,6 +130,8 @@ public class CodewikiRepositoryTools {
                 case "codewiki_search_code" -> searchCode(input);
                 case "codewiki_search_symbol" -> searchSymbol(input);
                 case "codewiki_analyze_impact" -> analyzeImpact(input);
+                case "codewiki_index_status" ->
+                        McpToolCallResponse.success(name, index.status(sourceFiles()));
                 default -> McpToolCallResponse.failure(name, "TOOL_NOT_FOUND", "unknown MCP tool");
             };
         } catch (IllegalArgumentException ex) {
@@ -128,58 +149,76 @@ public class CodewikiRepositoryTools {
 
     private McpToolCallResponse<?> searchCode(Map<String, Object> args) throws IOException {
         String query = requiredText(args, "query");
-        List<CodeDocument> documents = new ArrayList<>();
-        for (Path file : sourceFiles()) {
-            String path = relative(file);
-            String module = path.contains("/") ? path.substring(0, path.indexOf('/')) : "root";
-            documents.add(
-                    CodeDocument.builder()
-                            .id(path)
-                            .module(module)
-                            .path(path)
-                            .language(extension(file))
-                            .content(Files.readString(file, StandardCharsets.UTF_8))
-                            .summary("")
-                            .dependencies(List.of())
-                            .build());
-        }
-        var contexts =
-                new HybridRetriever(RetrievalCorpus.of(CodeDocumentChunker.chunkAll(documents)))
-                        .retrieve(query, 5)
-                        .relevantCode();
-        // Preserve hybrid scores, but prefer implementation source over examples
-        // when the question matches both (especially for self-analysis benchmarks).
-        List<Map<String, Object>> matches =
-                contexts.stream()
-                        .sorted(
-                                Comparator.comparingDouble(
-                                                (com.agentscope.codewiki.retriever.CodeContext c) ->
-                                                        c.score()
-                                                                + (c.path().contains("/src/main/")
-                                                                        ? 25D
-                                                                        : 0D))
-                                        .reversed())
-                        .limit(5)
-                        .map(
-                                c ->
-                                        Map.<String, Object>of(
-                                                "path",
+        RepositorySnapshotIndex.Snapshot current = index.refresh(sourceFiles());
+        var contexts = current.retriever().retrieve(query, 16).relevantCode();
+        // Exact class names explicitly named in a question must take precedence over
+        // semantically similar test cases, reports and imported references.
+        java.util.LinkedHashMap<String, Map<String, Object>> matches =
+                new java.util.LinkedHashMap<>();
+        String queryLower = query.toLowerCase(Locale.ROOT);
+        current.documents().stream()
+                .filter(
+                        document -> {
+                            String path = document.getPath();
+                            String baseName = path.substring(path.lastIndexOf('/') + 1);
+                            int dot = baseName.lastIndexOf('.');
+                            String name = dot < 0 ? baseName : baseName.substring(0, dot);
+                            return name.length() >= 4
+                                    && queryLower.contains(name.toLowerCase(Locale.ROOT));
+                        })
+                .sorted(
+                        Comparator.comparingInt(
+                                        (CodeDocument document) ->
+                                                document.getPath().contains("/src/main/") ? 0 : 1)
+                                .thenComparing(CodeDocument::getPath))
+                .limit(5)
+                .forEach(
+                        document -> {
+                            String path = document.getPath();
+                            matches.put(
+                                    path,
+                                    evidence(
+                                            path,
+                                            document.getModule(),
+                                            1000D,
+                                            document.getContent(),
+                                            query));
+                        });
+        contexts.stream()
+                .sorted(
+                        Comparator.comparingDouble(
+                                        (com.agentscope.codewiki.retriever.CodeContext c) ->
+                                                c.score()
+                                                        + (c.path().contains("/src/main/")
+                                                                ? 25D
+                                                                : 0D))
+                                .reversed())
+                .forEach(
+                        c -> {
+                            if (matches.size() < 5) {
+                                matches.putIfAbsent(
+                                        c.path(),
+                                        evidence(
                                                 c.path(),
-                                                "module",
                                                 c.module(),
-                                                "score",
                                                 c.score(),
-                                                "snippet",
-                                                relevantSnippet(c.content(), query, 1100)))
-                        .toList();
+                                                c.content(),
+                                                query));
+                            }
+                        });
         return McpToolCallResponse.success(
-                "codewiki_search_code", Map.of("results", matches, "fileCount", documents.size()));
+                "codewiki_search_code",
+                Map.of(
+                        "results",
+                        List.copyOf(matches.values()),
+                        "fileCount",
+                        current.documents().size()));
     }
 
     private McpToolCallResponse<?> searchSymbol(Map<String, Object> args) throws IOException {
         String query = requiredText(args, "query").toLowerCase(Locale.ROOT);
         List<Map<String, Object>> matches =
-                symbols().stream()
+                index.refresh(sourceFiles()).symbols().stream()
                         .map(GraphNode::fromSymbol)
                         .filter(
                                 n ->
@@ -224,7 +263,7 @@ public class CodewikiRepositoryTools {
             throw new IllegalArgumentException("file must be repository-relative");
         }
         ImpactReport report =
-                new ImpactAnalyzer(graph())
+                new ImpactAnalyzer(index.refresh(sourceFiles()).graph())
                         .analyze(
                                 file.isBlank() ? List.of() : List.of(file.replace('\\', '/')),
                                 symbol.isBlank() ? List.of() : List.of(symbol));
@@ -243,30 +282,6 @@ public class CodewikiRepositoryTools {
                         report.getDirectImpacts().size(),
                         "transitiveTotal",
                         report.getTransitiveImpacts().size()));
-    }
-
-    private CodeGraph graph() throws IOException {
-        return new CodeGraphBuilder().build(symbols());
-    }
-
-    private List<CodeSymbol> symbols() throws IOException {
-        // Exploded/test resources work by default. Fat JAR needs an external bridge path.
-        TreeSitterSymbolExtractor extractor =
-                bridgeScript == null
-                        ? new TreeSitterSymbolExtractor()
-                        : new TreeSitterSymbolExtractor(bridgeScript);
-        List<CodeSymbol> symbols = extractor.extractBatch(sourceFiles());
-        if (symbols.size() > MAX_SYMBOLS) {
-            throw new RepositoryLimitException("symbol limit exceeded; narrow repository scope");
-        }
-        for (CodeSymbol symbol : symbols) {
-            Path source = Path.of(symbol.getFilePath()).normalize();
-            if (!source.startsWith(root)) {
-                throw new IOException("bridge returned an out-of-scope source");
-            }
-            symbol.setFilePath(relative(source));
-        }
-        return symbols;
     }
 
     private List<Path> sourceFiles() throws IOException {
@@ -335,10 +350,31 @@ public class CodewikiRepositoryTools {
         return text.strip();
     }
 
-    /** Selects a compact evidence window containing query identifiers instead of only imports. */
-    private static String relevantSnippet(String content, String query, int window) {
+    private static Map<String, Object> evidence(
+            String path, String module, double score, String content, String query) {
+        SnippetWindow window = relevantSnippet(content, query, 1100);
+        return Map.of(
+                "path",
+                path,
+                "module",
+                module,
+                "score",
+                score,
+                "snippet",
+                window.text(),
+                "startLine",
+                window.startLine(),
+                "endLine",
+                window.endLine());
+    }
+
+    private record SnippetWindow(String text, int startLine, int endLine) {}
+
+    /** Select a compact window near query terms, with verifiable source line numbers. */
+    private static SnippetWindow relevantSnippet(String content, String query, int window) {
         if (content.length() <= window) {
-            return content;
+            return new SnippetWindow(
+                    content, 1, 1 + (int) content.chars().filter(ch -> ch == '\n').count());
         }
         List<String> terms =
                 java.util.Arrays.stream(query.toLowerCase(Locale.ROOT).split("[^a-z0-9_]+"))
@@ -381,9 +417,19 @@ public class CodewikiRepositoryTools {
                 bestScore = score;
             }
         }
-        return (bestStart > 0 ? "...\n" : "")
-                + content.substring(bestStart, Math.min(content.length(), bestStart + window))
-                + (bestStart + window < content.length() ? "\n..." : "");
+        int lineStart = content.lastIndexOf('\n', bestStart);
+        if (lineStart >= 0 && bestStart - lineStart <= 140) {
+            bestStart = lineStart + 1;
+        }
+        int end = Math.min(content.length(), bestStart + window);
+        String excerpt =
+                (bestStart > 0 ? "...\n" : "")
+                        + content.substring(bestStart, end)
+                        + (end < content.length() ? "\n..." : "");
+        int firstLine =
+                1 + (int) content.substring(0, bestStart).chars().filter(ch -> ch == '\n').count();
+        int lastLine = 1 + (int) content.substring(0, end).chars().filter(ch -> ch == '\n').count();
+        return new SnippetWindow(excerpt, firstLine, lastLine);
     }
 
     private static String nullToEmpty(String text) {

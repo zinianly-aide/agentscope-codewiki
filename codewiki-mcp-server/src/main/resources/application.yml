@@ -11,3 +11,4 @@ codewiki:
     enabled: ${CODEWIKI_ANALYSIS_ENABLED:false}
     repository-root: ${CODEWIKI_REPOSITORY_ROOT:}
     tree-sitter-bridge: ${CODEWIKI_TREE_SITTER_BRIDGE:}
+    cache-file: ${CODEWIKI_INDEX_CACHE_FILE:}

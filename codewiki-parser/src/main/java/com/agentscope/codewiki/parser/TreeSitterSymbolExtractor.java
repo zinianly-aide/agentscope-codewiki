@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -85,29 +86,49 @@ public class TreeSitterSymbolExtractor {
         if (!Files.isDirectory(workDir.resolve("node_modules"))) {
             throw new IOException("tree-sitter bridge dependencies are not installed");
         }
-        Process process =
-                new ProcessBuilder("node", bridgeScript.toAbsolutePath().toString(), "--batch")
-                        .directory(workDir.toFile())
-                        .redirectErrorStream(true)
-                        .start();
-        try (var writer = process.getOutputStream()) {
-            writer.write(
-                    MAPPER.writeValueAsBytes(
-                            sourceFiles.stream().map(p -> p.toAbsolutePath().toString()).toList()));
-        }
-        String output;
-        try (var reader = process.getInputStream()) {
-            output = new String(reader.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        }
+        Path output = Files.createTempFile("codewiki-symbol-bridge-", ".json");
         try {
-            if (process.waitFor() != 0) {
-                throw new IOException("tree-sitter batch bridge failed: " + output);
+            Process process =
+                    new ProcessBuilder("node", bridgeScript.toAbsolutePath().toString(), "--batch")
+                            .directory(workDir.toFile())
+                            .redirectErrorStream(true)
+                            .redirectOutput(output.toFile())
+                            .start();
+            try {
+                try (var writer = process.getOutputStream()) {
+                    writer.write(
+                            MAPPER.writeValueAsBytes(
+                                    sourceFiles.stream()
+                                            .map(p -> p.toAbsolutePath().toString())
+                                            .toList()));
+                }
+                if (!process.waitFor(40, TimeUnit.SECONDS)) {
+                    throw new IOException("tree-sitter batch parser timed out");
+                }
+                if (Files.size(output) > 20 * 1024 * 1024) {
+                    throw new IOException("tree-sitter batch parser output exceeded limit");
+                }
+                String text = Files.readString(output);
+                if (process.exitValue() != 0) {
+                    throw new IOException("tree-sitter batch parser failed");
+                }
+                return MAPPER.readValue(text, new TypeReference<List<CodeSymbol>>() {});
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("tree-sitter batch interrupted", e);
+            } finally {
+                if (process.isAlive()) {
+                    process.destroyForcibly();
+                    try {
+                        process.waitFor(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("tree-sitter batch interrupted", e);
+        } finally {
+            Files.deleteIfExists(output);
         }
-        return MAPPER.readValue(output, new TypeReference<List<CodeSymbol>>() {});
     }
 
     private List<CodeSymbol> extract(Path sourceFile, String lang) throws IOException {

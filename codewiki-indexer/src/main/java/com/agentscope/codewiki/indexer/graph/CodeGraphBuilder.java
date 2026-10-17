@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
 public class CodeGraphBuilder {
 
     private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(".java", ".ts", ".tsx", ".py");
+    private static final Pattern IDENTIFIER = Pattern.compile("[\\p{L}_$][\\p{L}\\p{N}_$]*");
 
     private final RepositoryScanner repositoryScanner;
     private final TreeSitterSymbolExtractor symbolExtractor;
@@ -72,6 +73,13 @@ public class CodeGraphBuilder {
         }
 
         Map<String, List<GraphNode>> nodesByName = indexByName(nodesById.values());
+        Map<String, List<GraphNode>> namesLower = new LinkedHashMap<>();
+        for (GraphNode node : nodesById.values()) {
+            namesLower
+                    .computeIfAbsent(
+                            node.getName().toLowerCase(Locale.ROOT), ignored -> new ArrayList<>())
+                    .add(node);
+        }
         Map<String, GraphEdge> edgesById = new LinkedHashMap<>();
         for (CodeSymbol symbol : sortedSymbols(symbols)) {
             GraphNode source = nodesById.get(GraphNode.stableId(symbol));
@@ -80,11 +88,18 @@ public class CodeGraphBuilder {
             }
             String text = searchableText(symbol);
             String lowerText = text.toLowerCase(Locale.ROOT);
-            for (GraphNode target : nodesById.values()) {
-                if (source.equals(target)) {
-                    continue;
+            Set<String> tokens = new LinkedHashSet<>();
+            var identifiers = IDENTIFIER.matcher(text);
+            while (identifiers.find()) {
+                tokens.add(identifiers.group().toLowerCase(Locale.ROOT));
+            }
+            Set<String> visited = new LinkedHashSet<>();
+            for (String token : tokens) {
+                for (GraphNode target : namesLower.getOrDefault(token, List.of())) {
+                    if (!source.equals(target) && visited.add(target.getId())) {
+                        addDetectedEdges(source, target, text, lowerText, symbol, edgesById);
+                    }
                 }
-                addDetectedEdges(source, target, text, lowerText, symbol, edgesById);
             }
             addImportEdges(source, text, nodesByName, edgesById);
         }
