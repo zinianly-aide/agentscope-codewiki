@@ -43,6 +43,16 @@ class TreeSitterSymbolExtractorTest {
     }
 
     @Test
+    void shouldExtractSeveralFilesWithOneBridgeProcess() throws Exception {
+        List<CodeSymbol> symbols =
+                extractor.extractBatch(List.of(samplePath("Sample.java"), samplePath("sample.py")));
+        Set<String> names = symbols.stream().map(CodeSymbol::getName).collect(Collectors.toSet());
+        assertTrue(names.contains("Calculator"));
+        assertTrue(names.contains("Greeter"));
+        assertTrue(symbols.stream().allMatch(s -> s.getFilePath() != null));
+    }
+
+    @Test
     void shouldRejectUnsupportedExtension() {
         assertThrows(
                 IllegalArgumentException.class, () -> extractor.extract(Path.of("test.unknown")));

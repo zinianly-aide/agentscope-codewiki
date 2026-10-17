@@ -79,11 +79,12 @@ public class CodeGraphBuilder {
                 continue;
             }
             String text = searchableText(symbol);
+            String lowerText = text.toLowerCase(Locale.ROOT);
             for (GraphNode target : nodesById.values()) {
                 if (source.equals(target)) {
                     continue;
                 }
-                addDetectedEdges(source, target, text, symbol, edgesById);
+                addDetectedEdges(source, target, text, lowerText, symbol, edgesById);
             }
             addImportEdges(source, text, nodesByName, edgesById);
         }
@@ -96,10 +97,13 @@ public class CodeGraphBuilder {
             GraphNode source,
             GraphNode target,
             String text,
+            String lowerText,
             CodeSymbol sourceSymbol,
             Map<String, GraphEdge> edgesById) {
         String targetName = target.getName();
-        if (targetName == null || targetName.isBlank()) {
+        if (targetName == null
+                || targetName.isBlank()
+                || !lowerText.contains(targetName.toLowerCase(Locale.ROOT))) {
             return;
         }
         if (containsInheritance(text, targetName, "implements")) {

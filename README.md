@@ -70,6 +70,10 @@ The command scans the Git repository, parses supported code symbols, generates o
 
 For a step-by-step operating procedure covering local setup, mock mode, Dify mode, diff review, benchmark runs, outputs, and troubleshooting, see [CodeWiki 使用 SOP](docs/usage-sop.zh-CN.md).
 
+### Opt-in code analysis through MCP demo bridge
+
+`codewiki-mcp-server` can now expose **read-only** code search, symbol lookup and impact-analysis tools for one explicitly configured repository. These use the existing Java parser/indexer/retriever and are disabled by default. It supports the original custom HTTP bridge plus a stateless MCP JSON-RPC HTTP endpoint at `/mcp`. See [P0 setup and security limits](docs/codewiki-mcp-p0.md) and [MiniCPM 4.7 evaluation](docs/minicpm47-evaluation.md).
+
 ### Code Graph
 
 `codewiki-indexer` builds a code knowledge graph from the existing symbol extraction output. It reuses `CodeSymbol`, `RepositoryScanner`, and `TreeSitterSymbolExtractor` instead of introducing a second source parser. The graph serializes to `graph.json` with this top-level shape:

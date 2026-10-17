@@ -65,6 +65,51 @@ public class TreeSitterSymbolExtractor {
         return extract(sourceFile, lang);
     }
 
+    /**
+     * Extracts many files through a single Node bridge process, avoiding per-file startup cost.
+     * Paths are passed through stdin as JSON rather than interpolated into shell commands.
+     */
+    public List<CodeSymbol> extractBatch(List<Path> sourceFiles) throws IOException {
+        if (sourceFiles == null || sourceFiles.isEmpty()) {
+            return List.of();
+        }
+        if (sourceFiles.size() > 800) {
+            throw new IllegalArgumentException("batch source file limit exceeded");
+        }
+        for (Path file : sourceFiles) {
+            if (detectLanguage(file) == null) {
+                throw new IllegalArgumentException("unsupported source language");
+            }
+        }
+        Path workDir = bridgeScript.getParent();
+        if (!Files.isDirectory(workDir.resolve("node_modules"))) {
+            throw new IOException("tree-sitter bridge dependencies are not installed");
+        }
+        Process process =
+                new ProcessBuilder("node", bridgeScript.toAbsolutePath().toString(), "--batch")
+                        .directory(workDir.toFile())
+                        .redirectErrorStream(true)
+                        .start();
+        try (var writer = process.getOutputStream()) {
+            writer.write(
+                    MAPPER.writeValueAsBytes(
+                            sourceFiles.stream().map(p -> p.toAbsolutePath().toString()).toList()));
+        }
+        String output;
+        try (var reader = process.getInputStream()) {
+            output = new String(reader.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        try {
+            if (process.waitFor() != 0) {
+                throw new IOException("tree-sitter batch bridge failed: " + output);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("tree-sitter batch interrupted", e);
+        }
+        return MAPPER.readValue(output, new TypeReference<List<CodeSymbol>>() {});
+    }
+
     private List<CodeSymbol> extract(Path sourceFile, String lang) throws IOException {
         String json = runBridge(lang, sourceFile.toAbsolutePath().toString());
         if (json == null || json.isBlank()) {

@@ -81,8 +81,39 @@ function extractSymbols(tree, source, queryStr, langObj, filePath) {
   return symbols;
 }
 
+async function batchMain() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const files = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!Array.isArray(files) || files.length > 800 ||
+      files.some(f => typeof f !== "string")) {
+    throw new Error("invalid batch file list");
+  }
+  const parsers = new Map();
+  const symbols = [];
+  for (const filePath of files) {
+    const ext = filePath.toLowerCase().match(/\.(java|py|ts|tsx)$/)?.[1];
+    const lang = ({java: "java", py: "python", ts: "typescript", tsx: "typescript"})[ext];
+    if (!lang) throw new Error("unsupported source language");
+    if (!parsers.has(lang)) {
+      const langObj = await LANGUAGE_LOADERS[lang]();
+      const parser = new Parser();
+      parser.setLanguage(langObj);
+      parsers.set(lang, {parser, langObj});
+    }
+    const {parser, langObj} = parsers.get(lang);
+    const source = readFileSync(filePath, "utf8");
+    symbols.push(...extractSymbols(parser.parse(source), source, QUERIES[lang], langObj, filePath));
+  }
+  console.log(JSON.stringify(symbols));
+}
+
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes("--batch")) {
+    await batchMain();
+    return;
+  }
   const langIdx = args.indexOf("--lang");
   const fileIdx = args.indexOf("--file");
 

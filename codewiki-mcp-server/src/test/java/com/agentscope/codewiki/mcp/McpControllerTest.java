@@ -25,7 +25,21 @@ class McpControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.serverName").value("codewiki-demo-mcp"))
                 .andExpect(content().string(containsString("get_platform_owner")))
-                .andExpect(content().string(containsString("create_sms_alert_summary")));
+                .andExpect(content().string(containsString("create_sms_alert_summary")))
+                .andExpect(
+                        content()
+                                .string(
+                                        org.hamcrest.Matchers.not(
+                                                containsString("codewiki_search_code"))));
+    }
+
+    @Test
+    void analysisToolsStayDisabledWithoutExplicitRepositoryConfiguration() throws Exception {
+        mockMvc.perform(
+                        post("/mcp/tools/codewiki_search_code/call")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"arguments\":{\"query\":\"hello\"}}"))
+                .andExpect(status().isNotFound());
     }
 
     @Test

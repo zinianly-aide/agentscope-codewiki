@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class DemoMcpToolRegistry {
     private final Validator validator;
+    private final CodewikiRepositoryTools repositoryTools;
     private final List<McpToolDescriptor> descriptors =
             List.of(
                     new McpToolDescriptor(
@@ -44,23 +45,26 @@ public class DemoMcpToolRegistry {
                                                     "startDate",
                                                     "endDate"))));
 
-    public DemoMcpToolRegistry(Validator validator) {
+    public DemoMcpToolRegistry(Validator validator, CodewikiRepositoryTools repositoryTools) {
         this.validator = validator;
+        this.repositoryTools = repositoryTools;
     }
 
     public List<McpToolDescriptor> descriptors() {
-        return descriptors;
+        return java.util.stream.Stream.concat(
+                        descriptors.stream(), repositoryTools.descriptors().stream())
+                .toList();
     }
 
     public boolean registered(String toolName) {
-        return descriptors.stream().anyMatch(tool -> tool.name().equals(toolName));
+        return descriptors().stream().anyMatch(tool -> tool.name().equals(toolName));
     }
 
     public McpToolCallResponse<?> call(String toolName, Map<String, Object> args) {
         return switch (toolName) {
             case "get_platform_owner" -> getPlatformOwner(toOwnerRequest(args));
             case "create_sms_alert_summary" -> createSmsAlertSummary(toAlertRequest(args));
-            default -> McpToolCallResponse.failure(toolName, "TOOL_NOT_FOUND", "unknown MCP tool");
+            default -> repositoryTools.call(toolName, args);
         };
     }
 
