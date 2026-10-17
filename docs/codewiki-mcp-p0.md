@@ -111,3 +111,12 @@ Source search now prioritizes explicitly named file/class identifiers and includ
 `startLine`/`endLine` for selected snippets. The MiniCPM-V 4.7 **1B** evaluation's
 three simple keyword questions passed on one P1 run, but this tiny example is **not**
 reliable proof of general code-answer accuracy.
+
+## Web Agent safety (P1)
+
+The companion `codewiki-web` demo also binds **127.0.0.1** by default to avoid
+accidental remote exposure of `/api/agent/*`, `/internal/mcp/refresh`, conversation
+history, and demo tool results. An intentional non-local binding requires
+`WEB_SERVER_BIND_ADDRESS` configuration and independent reverse-proxy authentication,
+network policy and per-user authorization before use. The project does not yet
+provide those production controls; keep both Web and MCP local for now.
