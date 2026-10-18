@@ -35,7 +35,10 @@ jobs:
           cache-dependency-path: codewiki-parser/src/main/resources/tree-sitter-bridge/package-lock.json
       - name: Install Tree-sitter bridge
         working-directory: codewiki-parser/src/main/resources/tree-sitter-bridge
-        run: npm ci --no-audit --no-fund
+        # tree-sitter-java 0.23.5 and tree-sitter-python 0.23.6 declare
+        # incompatible optional peer ranges, but the current bridge is
+        # explicitly tested with the locked tree-sitter 0.22.4 runtime.
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
       - name: Run all Maven tests
         run: mvn -B -ntp -DtrimStackTrace=false test
       - name: Verify independent graph metrics script
