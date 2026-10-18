@@ -1,0 +1,42 @@
+name: CodeWiki tests
+
+on:
+  pull_request:
+    paths:
+      - 'codewiki-*/**'
+      - 'pom.xml'
+      - 'scripts/codegraph_compare.py'
+      - 'scripts/test_codegraph_compare.py'
+      - '.github/workflows/codewiki-ci.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: codewiki-parser/src/main/resources/tree-sitter-bridge/package-lock.json
+      - name: Install Tree-sitter bridge
+        working-directory: codewiki-parser/src/main/resources/tree-sitter-bridge
+        run: npm ci --no-audit --no-fund
+      - name: Run all Maven tests
+        run: mvn -B -ntp -DtrimStackTrace=false test
+      - name: Verify independent graph metrics script
+        run: python3 -m unittest scripts/test_codegraph_compare.py
