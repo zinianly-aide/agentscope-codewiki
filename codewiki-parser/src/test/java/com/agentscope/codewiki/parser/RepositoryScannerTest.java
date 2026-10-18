@@ -12,7 +12,8 @@ class RepositoryScannerTest {
     @TempDir Path tempDir;
 
     private void initGitRepo(Path dir) throws Exception {
-        runCmd(dir, "git", "init");
+        // CI runners may default to master; the fixture intentionally uses main.
+        runCmd(dir, "git", "init", "-b", "main");
         runCmd(dir, "git", "config", "user.email", "test@test.com");
         runCmd(dir, "git", "config", "user.name", "Test");
     }

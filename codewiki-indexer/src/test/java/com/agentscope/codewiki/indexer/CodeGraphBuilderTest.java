@@ -10,6 +10,7 @@ import com.agentscope.codewiki.indexer.graph.CodeGraphQueryService;
 import com.agentscope.codewiki.indexer.graph.GraphEdge;
 import com.agentscope.codewiki.indexer.graph.GraphNode;
 import com.agentscope.codewiki.indexer.graph.GraphRelation;
+import com.agentscope.codewiki.parser.CodeReference;
 import com.agentscope.codewiki.parser.CodeSymbol;
 import java.util.List;
 import java.util.Set;
@@ -143,6 +144,511 @@ class CodeGraphBuilderTest {
                 impactedFiles);
         assertFalse(chains.isEmpty());
         assertTrue(chains.contains(List.of("api", "service", "storage")));
+    }
+
+    @Test
+    void shouldNotInferEdgesFromStringsAndComments() {
+        CodeSymbol source =
+                symbol(
+                        "Controller",
+                        "class",
+                        "class Controller",
+                        "app/src/Controller.java",
+                        1,
+                        "class Controller { // requestPayment()\n"
+                                + " String sample = \"requestPayment()\";\n"
+                                + " /* requestPayment() */\n"
+                                + " void execute() {} } ");
+        CodeSymbol method =
+                symbol(
+                        "requestPayment",
+                        "method",
+                        "void requestPayment()",
+                        "payments/src/Payments.java",
+                        1,
+                        "void requestPayment() {} ");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, method));
+        assertFalse(
+                graph.getEdges().stream()
+                        .anyMatch(
+                                edge ->
+                                        node(graph, edge.getSourceId())
+                                                        .getName()
+                                                        .equals("Controller")
+                                                && node(graph, edge.getTargetId())
+                                                        .getName()
+                                                        .equals("requestPayment")));
+    }
+
+    @Test
+    void shouldRejectUnresolvedSameNameTargetsFromDifferentModules() {
+        CodeSymbol source =
+                symbol(
+                        "Controller",
+                        "class",
+                        "class Controller",
+                        "api/src/Controller.java",
+                        1,
+                        "class Controller { void execute() { process(); } }");
+        CodeSymbol first =
+                symbol(
+                        "process",
+                        "method",
+                        "void process()",
+                        "billing/src/Process.java",
+                        1,
+                        "void process() {} ");
+        CodeSymbol second =
+                symbol(
+                        "process",
+                        "method",
+                        "void process()",
+                        "reports/src/Process.java",
+                        1,
+                        "void process() {} ");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, first, second));
+        assertFalse(
+                graph.getEdges().stream()
+                        .anyMatch(
+                                edge ->
+                                        node(graph, edge.getSourceId())
+                                                        .getName()
+                                                        .equals("Controller")
+                                                && node(graph, edge.getTargetId())
+                                                        .getName()
+                                                        .equals("process")));
+    }
+
+    @Test
+    void shouldPreferSameFileMethodWhenOtherModulesShareItsName() {
+        CodeSymbol source =
+                symbol(
+                        "Controller",
+                        "class",
+                        "class Controller",
+                        "api/src/Controller.java",
+                        1,
+                        "class Controller { void execute() { process(); } }");
+        CodeSymbol local =
+                symbol(
+                        "process",
+                        "method",
+                        "void process()",
+                        "api/src/Controller.java",
+                        12,
+                        "void process() {} ");
+        CodeSymbol remote =
+                symbol(
+                        "process",
+                        "method",
+                        "void process()",
+                        "reports/src/Other.java",
+                        1,
+                        "void process() {} ");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, local, remote));
+        assertTrue(
+                graph.getEdges().stream()
+                        .anyMatch(
+                                edge ->
+                                        node(graph, edge.getSourceId())
+                                                        .getName()
+                                                        .equals("Controller")
+                                                && node(graph, edge.getTargetId())
+                                                        .getFilePath()
+                                                        .equals("api/src/Controller.java")
+                                                && node(graph, edge.getTargetId())
+                                                        .getName()
+                                                        .equals("process")));
+        assertFalse(
+                graph.getEdges().stream()
+                        .anyMatch(
+                                edge ->
+                                        node(graph, edge.getSourceId())
+                                                        .getName()
+                                                        .equals("Controller")
+                                                && node(graph, edge.getTargetId())
+                                                        .getFilePath()
+                                                        .equals("reports/src/Other.java")
+                                                && node(graph, edge.getTargetId())
+                                                        .getName()
+                                                        .equals("process")));
+    }
+
+    @Test
+    void shouldIgnorePythonCommentsAndDocstrings() {
+        CodeSymbol source =
+                symbol(
+                        "run",
+                        "function",
+                        "def run():",
+                        "python/app.py",
+                        1,
+                        "def run():\n  \"\"\"launch()\"\"\"\n  # launch()\n  pass");
+        CodeSymbol target =
+                symbol(
+                        "launch",
+                        "function",
+                        "def launch():",
+                        "python/other.py",
+                        1,
+                        "def launch(): pass");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, target));
+        assertTrue(graph.getEdges().isEmpty());
+    }
+
+    @Test
+    void shouldCountAnObservedCallOnceInsteadOfBothCallAndReference() {
+        CodeSymbol source =
+                symbol(
+                        "Api",
+                        "class",
+                        "class Api",
+                        "api/Api.java",
+                        1,
+                        "class Api { void handle() { service(); } }");
+        CodeSymbol target =
+                symbol(
+                        "service",
+                        "method",
+                        "void service()",
+                        "business/Service.java",
+                        1,
+                        "void service() {} ");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, target));
+        long callEdges =
+                graph.getEdges().stream()
+                        .filter(
+                                e ->
+                                        node(graph, e.getSourceId()).getName().equals("Api")
+                                                && node(graph, e.getTargetId())
+                                                        .getName()
+                                                        .equals("service")
+                                                && e.getType() == GraphRelation.CALLS)
+                        .count();
+        long references =
+                graph.getEdges().stream()
+                        .filter(
+                                e ->
+                                        node(graph, e.getSourceId()).getName().equals("Api")
+                                                && node(graph, e.getTargetId())
+                                                        .getName()
+                                                        .equals("service")
+                                                && e.getType() == GraphRelation.REFERENCES)
+                        .count();
+        assertEquals(1L, callEdges);
+        assertEquals(0L, references);
+    }
+
+    @Test
+    void shouldAllowRealTypeScriptToTsxCall() {
+        CodeSymbol source =
+                symbol(
+                        "screen",
+                        "function",
+                        "function screen()",
+                        "app/core.ts",
+                        1,
+                        "function screen() { return renderPanel(); }");
+        CodeSymbol target =
+                symbol(
+                        "renderPanel",
+                        "function",
+                        "function renderPanel()",
+                        "app/view.tsx",
+                        1,
+                        "function renderPanel() { return null; }");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, target));
+        assertEdge(graph, GraphRelation.CALLS, "screen", "renderPanel");
+    }
+
+    @Test
+    void shouldIgnoreTypeScriptCommentedCallsAndTemplateStrings() {
+        CodeSymbol source =
+                symbol(
+                        "screen",
+                        "function",
+                        "function screen()",
+                        "app/core.ts",
+                        1,
+                        "function screen() { // renderPanel()\n"
+                                + " const msg = `renderPanel()`;\n /* renderPanel() */ return 0; }");
+        CodeSymbol target =
+                symbol(
+                        "renderPanel",
+                        "function",
+                        "function renderPanel()",
+                        "app/view.tsx",
+                        1,
+                        "function renderPanel() { return null; }");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, target));
+        assertTrue(graph.getEdges().isEmpty());
+    }
+
+    @Test
+    void shouldNotLinkJavaCallsToPythonSameNameFunctions() {
+        CodeSymbol source =
+                symbol(
+                        "Api",
+                        "class",
+                        "class Api",
+                        "api/Api.java",
+                        1,
+                        "class Api { void go() { launch(); } }");
+        CodeSymbol target =
+                symbol(
+                        "launch",
+                        "function",
+                        "def launch():",
+                        "scripts/helper.py",
+                        1,
+                        "def launch(): pass");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, target));
+        assertTrue(graph.getEdges().isEmpty());
+    }
+
+    @Test
+    void shouldUseFullyQualifiedImportToSelectMatchingJavaType() {
+        CodeSymbol source =
+                symbol(
+                        "Handler",
+                        "class",
+                        "class Handler",
+                        "app/src/main/java/app/Handler.java",
+                        1,
+                        "import com.alpha.User;\nclass Handler { User user; }");
+        CodeSymbol alpha =
+                symbol(
+                        "User",
+                        "class",
+                        "class User",
+                        "alpha/src/main/java/com/alpha/User.java",
+                        1,
+                        "class User {}");
+        CodeSymbol beta =
+                symbol(
+                        "User",
+                        "class",
+                        "class User",
+                        "beta/src/main/java/com/beta/User.java",
+                        1,
+                        "class User {}");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(source, alpha, beta));
+        assertTrue(
+                graph.getEdges().stream()
+                        .anyMatch(
+                                edge ->
+                                        edge.getType() == GraphRelation.IMPORTS
+                                                && node(graph, edge.getTargetId())
+                                                        .getFilePath()
+                                                        .contains("com/alpha/User.java")));
+        assertFalse(
+                graph.getEdges().stream()
+                        .anyMatch(
+                                edge ->
+                                        node(graph, edge.getSourceId()).getName().equals("Handler")
+                                                && node(graph, edge.getTargetId())
+                                                        .getFilePath()
+                                                        .contains("com/beta/User.java")));
+    }
+
+    @Test
+    void shouldPreferClassDefinitionOverSameNamedConstructorForReferencedType() {
+        CodeSymbol caller =
+                symbol(
+                        "Entry",
+                        "class",
+                        "class Entry",
+                        "api/src/Entry.java",
+                        1,
+                        "class Entry { void go() { new Analyzer(); } }");
+        CodeSymbol clazz =
+                symbol(
+                        "Analyzer",
+                        "class",
+                        "class Analyzer",
+                        "engine/src/Analyzer.java",
+                        1,
+                        "class Analyzer { Analyzer() {} }");
+        CodeSymbol ctor =
+                symbol(
+                        "Analyzer",
+                        "constructor",
+                        "Analyzer()",
+                        "engine/src/Analyzer.java",
+                        2,
+                        "Analyzer() {}");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(caller, clazz, ctor));
+        assertTrue(
+                graph.getEdges().stream()
+                        .anyMatch(
+                                e ->
+                                        node(graph, e.getSourceId()).getName().equals("Entry")
+                                                && node(graph, e.getTargetId())
+                                                        .getType()
+                                                        .equals("class")
+                                                && node(graph, e.getTargetId())
+                                                        .getName()
+                                                        .equals("Analyzer")));
+    }
+
+    @Test
+    void shouldNotMistakeOwnMethodDeclarationForCallToAnotherSameNamedMethod() {
+        CodeSymbol first =
+                symbol(
+                        "searchableText",
+                        "method",
+                        "String searchableText()",
+                        "indexer/src/Builder.java",
+                        1,
+                        "String searchableText() { return this.toString(); }");
+        CodeSymbol second =
+                symbol(
+                        "searchableText",
+                        "method",
+                        "String searchableText()",
+                        "retriever/src/Document.java",
+                        1,
+                        "String searchableText() { return this.toString(); }");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(first, second));
+        assertTrue(graph.getEdges().isEmpty());
+    }
+
+    @Test
+    void shouldAvoidInheritanceEdgesToMethodsThatShareTypeNames() {
+        CodeSymbol child =
+                symbol(
+                        "Child",
+                        "class",
+                        "class Child extends Parent",
+                        "app/src/Child.java",
+                        1,
+                        "class Child extends Parent {}");
+        CodeSymbol fakeParent =
+                symbol(
+                        "Parent",
+                        "method",
+                        "void Parent()",
+                        "app/src/Other.java",
+                        1,
+                        "void Parent() {} ");
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(child, fakeParent));
+        assertFalse(
+                graph.getEdges().stream()
+                        .anyMatch(
+                                edge ->
+                                        edge.getType() == GraphRelation.EXTENDS
+                                                || edge.getType() == GraphRelation.IMPLEMENTS));
+    }
+
+    @Test
+    void astCallsResolveOnlySameOwnerMethodsAndKeepCallSiteLine() {
+        CodeSymbol caller =
+                symbol(
+                        "dispatch",
+                        "method",
+                        "void dispatch()",
+                        "api/Worker.java",
+                        5,
+                        "void dispatch() { run(); } ");
+        caller.setOwnerType("Worker");
+        caller.setReferences(List.of(new CodeReference("call", "run", null, 8)));
+        CodeSymbol local =
+                symbol("run", "method", "void run()", "api/Worker.java", 20, "void run() {}");
+        local.setOwnerType("Worker");
+        local.setReferences(List.of());
+        CodeSymbol other =
+                symbol("run", "method", "void run()", "remote/WorkerTwo.java", 4, "void run() {}");
+        other.setOwnerType("WorkerTwo");
+        other.setReferences(List.of());
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(caller, local, other));
+        var edges =
+                graph.getEdges().stream()
+                        .filter(
+                                edge ->
+                                        edge.getType() == GraphRelation.CALLS
+                                                && node(graph, edge.getSourceId())
+                                                        .getName()
+                                                        .equals("dispatch"))
+                        .toList();
+        assertEquals(1, edges.size());
+        assertEquals("api/Worker.java", node(graph, edges.get(0).getTargetId()).getFilePath());
+        assertEquals("AST", edges.get(0).getOrigin());
+        assertEquals("HIGH", edges.get(0).getConfidence());
+        assertEquals(8, edges.get(0).getEvidenceLine());
+    }
+
+    @Test
+    void astQualifiedCallResolvesFullyQualifiedImportedJavaOwner() {
+        CodeSymbol caller =
+                symbol(
+                        "dispatch",
+                        "method",
+                        "void dispatch()",
+                        "app/src/main/java/app/Controller.java",
+                        4,
+                        "void dispatch() { BillingService.charge(); } ");
+        caller.setOwnerType("Controller");
+        caller.setImports(List.of("import com.billing.BillingService;"));
+        caller.setReferences(List.of(new CodeReference("call", "charge", "BillingService", 5)));
+        CodeSymbol billed =
+                symbol(
+                        "charge",
+                        "method",
+                        "void charge()",
+                        "billing/src/main/java/com/billing/BillingService.java",
+                        8,
+                        "void charge() {}");
+        billed.setOwnerType("BillingService");
+        billed.setReferences(List.of());
+        CodeSymbol wrong =
+                symbol(
+                        "charge",
+                        "method",
+                        "void charge()",
+                        "other/src/main/java/com/other/BillingService.java",
+                        8,
+                        "void charge() {}");
+        wrong.setOwnerType("BillingService");
+        wrong.setReferences(List.of());
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(caller, billed, wrong));
+        var calls =
+                graph.getEdges().stream()
+                        .filter(edge -> edge.getType() == GraphRelation.CALLS)
+                        .toList();
+        assertEquals(1, calls.size());
+        assertEquals(billed.getFilePath(), node(graph, calls.get(0).getTargetId()).getFilePath());
+    }
+
+    @Test
+    void astUnresolvedReceiverAndEmptyCallSetMustNotGuessLinks() {
+        CodeSymbol caller =
+                symbol(
+                        "dispatch",
+                        "method",
+                        "void dispatch()",
+                        "app/src/Controller.java",
+                        1,
+                        "void dispatch() { helper.charge(); } ");
+        caller.setOwnerType("Controller");
+        caller.setReferences(List.of(new CodeReference("call", "charge", "helper", 1)));
+        CodeSymbol target =
+                symbol(
+                        "charge",
+                        "method",
+                        "void charge()",
+                        "billing/src/BillingService.java",
+                        1,
+                        "void charge() {}");
+        target.setOwnerType("BillingService");
+        target.setReferences(List.of());
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(caller, target));
+        assertTrue(
+                graph.getEdges().stream().noneMatch(edge -> edge.getType() == GraphRelation.CALLS));
+        caller.setReferences(List.of());
+        assertTrue(
+                new CodeGraphBuilder()
+                        .build(List.of(caller, target)).getEdges().stream()
+                                .noneMatch(edge -> edge.getType() == GraphRelation.CALLS));
     }
 
     private void assertEdge(

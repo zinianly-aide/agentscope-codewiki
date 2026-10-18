@@ -43,9 +43,95 @@ class TreeSitterSymbolExtractorTest {
     }
 
     @Test
+    void shouldExtractSeveralFilesWithOneBridgeProcess() throws Exception {
+        List<CodeSymbol> symbols =
+                extractor.extractBatch(List.of(samplePath("Sample.java"), samplePath("sample.py")));
+        Set<String> names = symbols.stream().map(CodeSymbol::getName).collect(Collectors.toSet());
+        assertTrue(names.contains("Calculator"));
+        assertTrue(names.contains("Greeter"));
+        assertTrue(symbols.stream().allMatch(s -> s.getFilePath() != null));
+    }
+
+    @Test
     void shouldRejectUnsupportedExtension() {
         assertThrows(
                 IllegalArgumentException.class, () -> extractor.extract(Path.of("test.unknown")));
+    }
+
+    @Test
+    void shouldExtractJavaAstCallSitesAndOwningClass() throws Exception {
+        Path file = Files.createTempFile("codewiki-java-ast-", ".java");
+        try {
+            Files.writeString(
+                    file,
+                    "import org.billing.BillingService;\nclass OrderController {\n"
+                            + "  void submit() { process(); BillingService.charge(); }\n"
+                            + "  void process() {}\n"
+                            + "  String example = \"fake()\";\n"
+                            + "}\n");
+            List<CodeSymbol> symbols = extractor.extract(file);
+            CodeSymbol method =
+                    symbols.stream()
+                            .filter(s -> "submit".equals(s.getName()))
+                            .findFirst()
+                            .orElseThrow();
+            assertEquals("OrderController", method.getOwnerType());
+            assertNotNull(method.getReferences());
+            assertEquals(2, method.getReferences().size());
+            assertEquals("process", method.getReferences().get(0).name());
+            assertNull(method.getReferences().get(0).receiver());
+            assertEquals("charge", method.getReferences().get(1).name());
+            assertEquals("BillingService", method.getReferences().get(1).receiver());
+            assertEquals(3, method.getReferences().get(1).line());
+            assertTrue(method.getImports().contains("import org.billing.BillingService;"));
+            CodeSymbol clazz =
+                    symbols.stream()
+                            .filter(s -> "OrderController".equals(s.getName()))
+                            .findFirst()
+                            .orElseThrow();
+            assertTrue(clazz.getReferences().isEmpty());
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    @Test
+    void shouldExtractBoundLocalParameterAndFieldReceiverTypes() throws Exception {
+        Path file = Files.createTempFile("codewiki-receiver-", ".java");
+        try {
+            Files.writeString(
+                    file,
+                    "class Controller {\n"
+                            + "  PaymentService field;\n"
+                            + "  void dispatch(BillingService argument) {\n"
+                            + "    PaymentService local = new PaymentService();\n"
+                            + "    local.process(); argument.charge(); field.process();\n"
+                            + "    this.field.process();\n"
+                            + "    before.process();\n"
+                            + "    PaymentService before = new PaymentService();\n"
+                            + "    { OtherService scoped = new OtherService(); scoped.process(); }\n"
+                            + "    scoped.process();\n"
+                            + "    local = new PaymentService(); local.process();\n"
+                            + "  }\n"
+                            + "}\n");
+            CodeSymbol method =
+                    extractor.extract(file).stream()
+                            .filter(s -> "dispatch".equals(s.getName()))
+                            .findFirst()
+                            .orElseThrow();
+            var refs = method.getReferences();
+            assertEquals(8, refs.size());
+            assertEquals("PaymentService", refs.get(0).receiverType());
+            assertEquals("BillingService", refs.get(1).receiverType());
+            assertEquals("PaymentService", refs.get(2).receiverType());
+            assertEquals("PaymentService", refs.get(3).receiverType());
+            assertNull(refs.get(4).receiverType(), "future declaration is not visible");
+            assertEquals("OtherService", refs.get(5).receiverType());
+            assertNull(refs.get(6).receiverType(), "nested block variable not visible outside");
+            assertNull(refs.get(7).receiverType(), "reassigned receiver conservatively unresolved");
+        } finally {
+            Files.deleteIfExists(file);
+        }
     }
 
     @Test

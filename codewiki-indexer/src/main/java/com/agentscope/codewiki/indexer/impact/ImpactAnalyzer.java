@@ -139,12 +139,17 @@ public class ImpactAnalyzer {
                 int nextDepth = step.depth() + 1;
                 String impactId = target.getId() + "->" + source.getId() + ":" + nextDepth;
                 if (seenEdges.add(impactId)) {
-                    impacts.add(
+                    ImpactEdge impact =
                             new ImpactEdge(
                                     ImpactNode.fromGraphNode(target),
                                     ImpactNode.fromGraphNode(source),
                                     edge.getType().name(),
-                                    nextDepth));
+                                    nextDepth,
+                                    edge.getOrigin(),
+                                    edge.getConfidence(),
+                                    edge.getEvidenceLine());
+                    impact.setEvidenceLines(edge.getEvidenceLines());
+                    impacts.add(impact);
                 }
                 Integer previousBest = bestDepth.get(source.getId());
                 if (previousBest == null || nextDepth < previousBest) {

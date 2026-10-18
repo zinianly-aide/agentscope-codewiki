@@ -7,6 +7,10 @@ public class ImpactEdge {
     private ImpactNode target;
     private String relation;
     private int depth;
+    private String origin;
+    private String confidence;
+    private int evidenceLine;
+    private java.util.List<Integer> evidenceLines = new java.util.ArrayList<>();
 
     public ImpactEdge() {}
 
@@ -15,6 +19,32 @@ public class ImpactEdge {
         this.target = target;
         this.relation = relation;
         this.depth = depth;
+    }
+
+    public ImpactEdge(
+            ImpactNode source,
+            ImpactNode target,
+            String relation,
+            int depth,
+            String origin,
+            String confidence,
+            int evidenceLine) {
+        this(source, target, relation, depth);
+        this.origin = origin;
+        this.confidence = confidence;
+        this.evidenceLine = evidenceLine;
+        if (evidenceLine > 0) {
+            this.evidenceLines.add(evidenceLine);
+        }
+    }
+
+    public java.util.List<Integer> getEvidenceLines() {
+        return java.util.List.copyOf(evidenceLines);
+    }
+
+    public void setEvidenceLines(java.util.List<Integer> lines) {
+        this.evidenceLines =
+                lines == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(lines);
     }
 
     public ImpactNode getSource() {
@@ -39,6 +69,30 @@ public class ImpactEdge {
 
     public void setRelation(String relation) {
         this.relation = relation;
+    }
+
+    public String getOrigin() {
+        return origin;
+    }
+
+    public void setOrigin(String origin) {
+        this.origin = origin;
+    }
+
+    public String getConfidence() {
+        return confidence;
+    }
+
+    public void setConfidence(String confidence) {
+        this.confidence = confidence;
+    }
+
+    public int getEvidenceLine() {
+        return evidenceLine;
+    }
+
+    public void setEvidenceLine(int evidenceLine) {
+        this.evidenceLine = evidenceLine;
     }
 
     public int getDepth() {

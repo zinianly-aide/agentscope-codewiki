@@ -1,7 +1,14 @@
 server:
+  address: ${MCP_SERVER_BIND_ADDRESS:127.0.0.1}
   port: ${MCP_SERVER_PORT:8091}
 management:
   endpoints:
     web:
       exposure:
         include: health
+codewiki:
+  analysis:
+    enabled: ${CODEWIKI_ANALYSIS_ENABLED:false}
+    repository-root: ${CODEWIKI_REPOSITORY_ROOT:}
+    tree-sitter-bridge: ${CODEWIKI_TREE_SITTER_BRIDGE:}
+    cache-file: ${CODEWIKI_INDEX_CACHE_FILE:}
