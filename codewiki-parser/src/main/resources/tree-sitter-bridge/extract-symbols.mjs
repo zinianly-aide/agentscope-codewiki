@@ -53,6 +53,87 @@ function ownerTypeOf(node, source) {
   return null;
 }
 
+// Restrict the first implementation to simple nominal Java types; generic/array/
+// inferred/qualified chains and mutations are left unresolved rather than guessed.
+function nominalType(typeNode, source) {
+  if (!typeNode) return null;
+  const raw = source.substring(typeNode.startIndex, typeNode.endIndex).trim();
+  return /^[A-Za-z_$][\w$]*$/.test(raw) && !["var", "void"].includes(raw) ? raw : null;
+}
+
+function isAncestorScope(scope, node) {
+  let current = node;
+  while (current) {
+    if (current === scope) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function javaReceiverType(methodNode, invocation, receiver, source) {
+  if (!receiver || !/^(?:this\.)?[a-zA-Z_$][\w$]*$/.test(receiver)) return null;
+  const fieldOnly = receiver.startsWith("this.");
+  const name = fieldOnly ? receiver.slice(5) : receiver;
+  const methodBody = methodNode.childForFieldName?.("body");
+  const definitions = [];
+  const consider = (declaration, scope, rank) => {
+    if (!scope || !isAncestorScope(scope, invocation)) return;
+    if (rank !== 0 && declaration.startIndex >= invocation.startIndex) return;
+    const type = nominalType(declaration.childForFieldName?.("type"), source);
+    if (!type) return;
+    const declarators = declaration.type === "formal_parameter"
+      ? [declaration] : declaration.namedChildren.filter(n => n.type === "variable_declarator");
+    for (const varNode of declarators) {
+      const id = varNode.childForFieldName?.("name");
+      if (id && source.substring(id.startIndex, id.endIndex) === name) {
+        definitions.push({type, rank, position: declaration.startIndex});
+      }
+    }
+  };
+  if (!fieldOnly) {
+    const params = methodNode.childForFieldName?.("parameters");
+    for (const param of params?.namedChildren || []) {
+      if (param.type === "formal_parameter") consider(param, methodNode, 100);
+    }
+    const walk = n => {
+      if (n !== methodBody && ["class_declaration", "method_declaration", "lambda_expression"].includes(n.type)) return;
+      if (n.type === "local_variable_declaration") consider(n, n.parent, 200);
+      for (const child of n.namedChildren) walk(child);
+    };
+    if (methodBody) walk(methodBody);
+  }
+  let clazz = methodNode.parent;
+  while (clazz && clazz.type !== "class_declaration") clazz = clazz.parent;
+  if (clazz) {
+    const body = clazz.childForFieldName?.("body");
+    for (const field of body?.namedChildren || []) {
+      if (field.type === "field_declaration") consider(field, clazz, 0);
+    }
+  }
+  if (!definitions.length) return null;
+  const maxRank = Math.max(...definitions.map(d => d.rank));
+  const scopeCandidates = definitions.filter(d => d.rank === maxRank);
+  // Multiple visible declarations at the same priority mean ambiguous scope.
+  if (scopeCandidates.length !== 1) return null;
+  const type = scopeCandidates[0].type;
+  // Without full flow analysis an assignment/update can change a receiver's type.
+  // Conservatively drop a receiver when it is reassigned before the invocation.
+  if (!fieldOnly && methodBody) {
+    let mutation = false;
+    const walk = n => {
+      if (n.startIndex >= invocation.startIndex || mutation) return;
+      if (["assignment_expression", "update_expression"].includes(n.type)) {
+        const lhs = n.childForFieldName?.("left") || n.namedChildren[0];
+        if (lhs && source.substring(lhs.startIndex, lhs.endIndex) === name) mutation = true;
+      }
+      for (const child of n.namedChildren) walk(child);
+    };
+    walk(methodBody);
+    if (mutation) return null;
+  }
+  return type;
+}
+
 function javaCalls(node, source) {
   const calls = [];
   const visit = current => {
@@ -62,8 +143,10 @@ function javaCalls(node, source) {
       if (name) {
         const value = source.substring(name.startIndex, name.endIndex);
         const objectText = receiver && source.substring(receiver.startIndex, receiver.endIndex);
+        const normalizedReceiver = objectText && objectText.length < 128 ? objectText : null;
         calls.push({kind: "call", name: value,
-          receiver: objectText && objectText.length < 128 ? objectText : null,
+          receiver: normalizedReceiver,
+          receiverType: javaReceiverType(node, current, normalizedReceiver, source),
           line: current.startPosition.row + 1});
       }
     }

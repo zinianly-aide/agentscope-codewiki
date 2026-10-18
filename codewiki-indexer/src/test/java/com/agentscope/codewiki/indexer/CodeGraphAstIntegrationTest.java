@@ -8,6 +8,7 @@ import com.agentscope.codewiki.indexer.graph.CodeGraphBuilder;
 import com.agentscope.codewiki.indexer.graph.GraphEdge;
 import com.agentscope.codewiki.indexer.graph.GraphNode;
 import com.agentscope.codewiki.indexer.graph.GraphRelation;
+import com.agentscope.codewiki.indexer.impact.ImpactAnalyzer;
 import com.agentscope.codewiki.parser.CodeSymbol;
 import com.agentscope.codewiki.parser.TreeSitterSymbolExtractor;
 import java.nio.file.Files;
@@ -90,5 +91,73 @@ class CodeGraphAstIntegrationTest {
                                         "AST".equals(e.getOrigin())
                                                 && "HIGH".equals(e.getConfidence())
                                                 && e.getEvidenceLine() > 0));
+    }
+
+    @Test
+    void javaReceiverBindingRecoversLocalParameterAndFieldCallsWithoutCrossPackageGuesses()
+            throws Exception {
+        Path source = directory.resolve("app/Controller.java");
+        Path target = directory.resolve("com/billing/PaymentService.java");
+        Path rival = directory.resolve("com/other/PaymentService.java");
+        Files.createDirectories(source.getParent());
+        Files.createDirectories(target.getParent());
+        Files.createDirectories(rival.getParent());
+        Files.writeString(
+                source,
+                "package app;\nimport com.billing.PaymentService;\n"
+                        + "class Controller {\n"
+                        + "  PaymentService field;\n"
+                        + "  void dispatch(PaymentService arg) {\n"
+                        + "    PaymentService local = new PaymentService();\n"
+                        + "    local.process(); arg.process(); field.process(); this.field.process();\n"
+                        + "    missing.process();\n"
+                        + "    { PaymentService scoped = new PaymentService(); scoped.process(); }\n"
+                        + "    scoped.process();\n"
+                        + "    local = new PaymentService(); local.process();\n"
+                        + "  }\n"
+                        + "}\n");
+        Files.writeString(
+                target, "package com.billing;\nclass PaymentService { void process() {} }\n");
+        Files.writeString(
+                rival, "package com.other;\nclass PaymentService { void process() {} }\n");
+        TreeSitterSymbolExtractor extractor = new TreeSitterSymbolExtractor();
+        List<CodeSymbol> symbols = extractor.extractBatch(List.of(source, target, rival));
+        for (CodeSymbol symbol : symbols) {
+            symbol.setFilePath(
+                    directory
+                            .relativize(Path.of(symbol.getFilePath()))
+                            .toString()
+                            .replace('\\', '/'));
+        }
+        CodeGraph graph = new CodeGraphBuilder().build(symbols);
+        var nodes = graph.getNodes().stream().collect(Collectors.toMap(GraphNode::getId, n -> n));
+        var calls =
+                graph.getEdges().stream()
+                        .filter(e -> e.getType() == GraphRelation.CALLS)
+                        .filter(e -> "dispatch".equals(nodes.get(e.getSourceId()).getName()))
+                        .toList();
+        // Five call sites to the *same* method become one dependency edge with
+        // distinct source evidence lines. Unknown and out-of-scope receivers and
+        // post-reassignment references must not create additional edges.
+        assertEquals(1, calls.size());
+        assertTrue(
+                calls.stream()
+                        .allMatch(
+                                e ->
+                                        "com/billing/PaymentService.java"
+                                                        .equals(
+                                                                nodes.get(e.getTargetId())
+                                                                        .getFilePath())
+                                                && "AST".equals(e.getOrigin())
+                                                && "MEDIUM".equals(e.getConfidence())
+                                                && e.getEvidenceLine() > 0));
+        assertEquals(List.of(7, 9), calls.get(0).getEvidenceLines());
+        var impact = new ImpactAnalyzer(graph).analyze(List.of(), List.of("process"));
+        assertTrue(
+                impact.getDirectImpacts().stream()
+                        .anyMatch(
+                                edge ->
+                                        "MEDIUM".equals(edge.getConfidence())
+                                                && edge.getEvidenceLines().equals(List.of(7, 9))));
     }
 }

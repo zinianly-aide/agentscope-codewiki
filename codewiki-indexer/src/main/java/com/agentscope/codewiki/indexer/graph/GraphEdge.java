@@ -13,6 +13,7 @@ public class GraphEdge {
     private String origin;
     private String confidence;
     private int evidenceLine;
+    private java.util.List<Integer> evidenceLines = new java.util.ArrayList<>();
 
     public GraphEdge() {}
 
@@ -38,6 +39,7 @@ public class GraphEdge {
         this.origin = origin;
         this.confidence = confidence;
         this.evidenceLine = evidenceLine;
+        addEvidenceLine(evidenceLine);
     }
 
     public String getId() {
@@ -102,6 +104,21 @@ public class GraphEdge {
 
     public void setEvidenceLine(int evidenceLine) {
         this.evidenceLine = evidenceLine;
+    }
+
+    public java.util.List<Integer> getEvidenceLines() {
+        return java.util.List.copyOf(evidenceLines);
+    }
+
+    public void setEvidenceLines(java.util.List<Integer> lines) {
+        evidenceLines =
+                lines == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(lines);
+    }
+
+    public void addEvidenceLine(int line) {
+        if (line > 0 && !evidenceLines.contains(line)) {
+            evidenceLines.add(line);
+        }
     }
 
     @Override

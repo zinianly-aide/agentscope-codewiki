@@ -61,3 +61,8 @@ retrieval and tool invocation, **not** semantic correctness of the generated gra
 A future milestone should add receiver-type inference backed by symbol tables and
 receiver/owner binding tests, then evaluate true call precision/recall on larger
 real-world Java, TypeScript and Python projects.
+
+## P4 continuation
+
+See [conservative Java receiver-type binding](code-graph-receiver-binding-p4.md)
+for AST-derived local/parameter/field receiver support, provenance and cache v3.

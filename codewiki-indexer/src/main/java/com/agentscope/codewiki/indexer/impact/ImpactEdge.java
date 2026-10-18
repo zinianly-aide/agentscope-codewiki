@@ -10,6 +10,7 @@ public class ImpactEdge {
     private String origin;
     private String confidence;
     private int evidenceLine;
+    private java.util.List<Integer> evidenceLines = new java.util.ArrayList<>();
 
     public ImpactEdge() {}
 
@@ -32,6 +33,18 @@ public class ImpactEdge {
         this.origin = origin;
         this.confidence = confidence;
         this.evidenceLine = evidenceLine;
+        if (evidenceLine > 0) {
+            this.evidenceLines.add(evidenceLine);
+        }
+    }
+
+    public java.util.List<Integer> getEvidenceLines() {
+        return java.util.List.copyOf(evidenceLines);
+    }
+
+    public void setEvidenceLines(java.util.List<Integer> lines) {
+        this.evidenceLines =
+                lines == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(lines);
     }
 
     public ImpactNode getSource() {

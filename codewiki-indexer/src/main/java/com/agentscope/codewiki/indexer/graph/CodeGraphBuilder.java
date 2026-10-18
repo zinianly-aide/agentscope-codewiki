@@ -334,9 +334,14 @@ public class CodeGraphBuilder {
                                             + "(...) at L"
                                             + reference.line(),
                                     "AST",
-                                    "HIGH",
+                                    reference.receiverType() == null ? "HIGH" : "MEDIUM",
                                     reference.line());
-                    edgesById.put(edge.getId(), edge);
+                    GraphEdge previous = edgesById.get(edge.getId());
+                    if (previous != null && "AST".equals(previous.getOrigin())) {
+                        previous.addEvidenceLine(reference.line());
+                    } else {
+                        edgesById.put(edge.getId(), edge);
+                    }
                 }
             }
         }
@@ -352,9 +357,12 @@ public class CodeGraphBuilder {
             return target.getFilePath().equals(caller.getFilePath())
                     && caller.getOwnerType().equals(callee.getOwnerType());
         }
-        // Only static-style ClassName.method() with a provably identified owner.
-        // Variable.method() would require scope-aware type binding and is omitted.
-        if (!receiver.equals(callee.getOwnerType())) {
+        // P4: receiverType comes from a scoped Java AST declaration (local, parameter,
+        // or field). Unsupported aliases/expressions remain unresolved. Its confidence
+        // is MEDIUM until compiler-grade type / data-flow checking exists.
+        String expectedOwner =
+                reference.receiverType() == null ? receiver : reference.receiverType();
+        if (!expectedOwner.equals(callee.getOwnerType())) {
             return false;
         }
         if (target.getFilePath().equals(caller.getFilePath())) {
@@ -371,7 +379,7 @@ public class CodeGraphBuilder {
                                             .trim()
                                             .replaceFirst("^import\\s+(?:static\\s+)?", "")
                                             .replace(";", "");
-                            if (!imported.endsWith("." + receiver)) {
+                            if (!imported.endsWith("." + expectedOwner)) {
                                 return false;
                             }
                             return ("/" + target.getFilePath().replace('\\', '/'))
