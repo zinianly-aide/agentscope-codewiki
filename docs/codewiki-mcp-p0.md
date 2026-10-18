@@ -120,3 +120,10 @@ history, and demo tool results. An intentional non-local binding requires
 `WEB_SERVER_BIND_ADDRESS` configuration and independent reverse-proxy authentication,
 network policy and per-user authorization before use. The project does not yet
 provide those production controls; keep both Web and MCP local for now.
+
+## P2: Code graph precision rules
+
+Code graph edge inference now avoids known cross-language, same-name, comment/string,
+and constructor-vs-class false positives. Ambiguous calls are excluded rather than
+counted as certain impact. See [P2 graph validation](code-graph-precision-p2.md)
+for test coverage and deliberately unresolved dynamic-dispatch cases.

@@ -86,7 +86,7 @@ public class CodeGraphBuilder {
             if (source == null) {
                 continue;
             }
-            String text = searchableText(symbol);
+            String text = stripNonCode(searchableText(symbol), languageOf(source.getFilePath()));
             String lowerText = text.toLowerCase(Locale.ROOT);
             Set<String> tokens = new LinkedHashSet<>();
             var identifiers = IDENTIFIER.matcher(text);
@@ -95,7 +95,8 @@ public class CodeGraphBuilder {
             }
             Set<String> visited = new LinkedHashSet<>();
             for (String token : tokens) {
-                for (GraphNode target : namesLower.getOrDefault(token, List.of())) {
+                for (GraphNode target :
+                        resolveTargets(source, text, namesLower.getOrDefault(token, List.of()))) {
                     if (!source.equals(target) && visited.add(target.getId())) {
                         addDetectedEdges(source, target, text, lowerText, symbol, edgesById);
                     }
@@ -106,6 +107,168 @@ public class CodeGraphBuilder {
 
         return new CodeGraph(
                 new ArrayList<>(nodesById.values()), new ArrayList<>(edgesById.values()));
+    }
+
+    /**
+     * Conservative linking policy: no cross-language guesses and no broadcast links to unrelated
+     * same-name symbols. Same-file bindings win, then explicit Java imports; unresolved ambiguities
+     * remain unlinked rather than inflating impact reports.
+     */
+    private List<GraphNode> resolveTargets(
+            GraphNode source, String text, List<GraphNode> candidates) {
+        if (isCallable(source) && candidates.stream().anyMatch(source::equals)) {
+            // A method declaration with this name is not a call to another
+            // same-named method in some unrelated module.
+            return List.of();
+        }
+        String language = languageOf(source.getFilePath());
+        List<GraphNode> compatible =
+                candidates.stream()
+                        .filter(n -> language.equals(languageOf(n.getFilePath())))
+                        .filter(n -> !source.equals(n))
+                        .toList();
+        if (compatible.size() <= 1) {
+            return compatible;
+        }
+        List<GraphNode> types = compatible.stream().filter(this::isTypeLike).toList();
+        if (types.size() == 1
+                && compatible.stream()
+                        .allMatch(
+                                n ->
+                                        isTypeLike(n)
+                                                || (n.getFilePath()
+                                                                .equals(types.get(0).getFilePath())
+                                                        && "constructor".equals(n.getType())))) {
+            return types;
+        }
+        List<GraphNode> sameFile =
+                compatible.stream()
+                        .filter(n -> n.getFilePath().equals(source.getFilePath()))
+                        .toList();
+        if (!sameFile.isEmpty()) {
+            return sameFile;
+        }
+        if ("java".equals(language)) {
+            List<GraphNode> imported =
+                    compatible.stream()
+                            .filter(n -> isTypeLike(n) && isExplicitlyImported(text, n))
+                            .toList();
+            if (!imported.isEmpty()) {
+                return imported.size() == 1 ? imported : List.of();
+            }
+        }
+        // Without type/receiver resolution, picking every overload with the same
+        // simple method name would produce false positive call/impact edges.
+        return List.of();
+    }
+
+    private boolean isExplicitlyImported(String text, GraphNode node) {
+        String path = node.getFilePath().replace('\\', '/');
+        var imports =
+                Pattern.compile(
+                                "(?m)^\\s*import\\s+([a-zA-Z_$][\\w$]*(?:\\.[a-zA-Z_$][\\w$]*)+)\\s*;?")
+                        .matcher(text);
+        while (imports.find()) {
+            String fullyQualified = imports.group(1);
+            if (fullyQualified.endsWith("." + node.getName())
+                    && ("/" + path).endsWith("/" + fullyQualified.replace('.', '/') + ".java")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String languageOf(String path) {
+        if (path == null) {
+            return "";
+        }
+        String value = path.toLowerCase(Locale.ROOT);
+        if (value.endsWith(".ts") || value.endsWith(".tsx")) {
+            return "typescript";
+        }
+        if (value.endsWith(".java")) {
+            return "java";
+        }
+        if (value.endsWith(".py")) {
+            return "python";
+        }
+        return "";
+    }
+
+    private boolean isCallable(GraphNode node) {
+        String type = nullToEmpty(node.getType()).toLowerCase(Locale.ROOT);
+        return type.contains("method") || type.contains("function") || type.contains("constructor");
+    }
+
+    /** Remove literal/comment text while preserving line breaks and token boundaries. */
+    private static String stripNonCode(String source, String language) {
+        char[] chars = source.toCharArray();
+        int i = 0;
+        while (i < chars.length) {
+            char ch = chars[i];
+            boolean hash = "python".equals(language) && ch == '#';
+            boolean line = ch == '/' && i + 1 < chars.length && chars[i + 1] == '/';
+            boolean block = ch == '/' && i + 1 < chars.length && chars[i + 1] == '*';
+            if (hash || line) {
+                while (i < chars.length && chars[i] != '\n') {
+                    chars[i++] = ' ';
+                }
+                continue;
+            }
+            if (block) {
+                int begin = i;
+                i += 2;
+                while (i + 1 < chars.length && !(chars[i] == '*' && chars[i + 1] == '/')) {
+                    i++;
+                }
+                i = Math.min(chars.length, i + 2);
+                blank(chars, begin, i);
+                continue;
+            }
+            if (ch == '\'' || ch == '"' || ch == '`') {
+                int begin = i;
+                int quoteLength =
+                        "python".equals(language)
+                                        && i + 2 < chars.length
+                                        && chars[i + 1] == ch
+                                        && chars[i + 2] == ch
+                                ? 3
+                                : 1;
+                i += quoteLength;
+                while (i < chars.length) {
+                    if (chars[i] == '\\' && quoteLength == 1) {
+                        i = Math.min(chars.length, i + 2);
+                        continue;
+                    }
+                    if (i + quoteLength <= chars.length) {
+                        boolean closed = true;
+                        for (int j = 0; j < quoteLength; j++) {
+                            if (chars[i + j] != ch) {
+                                closed = false;
+                                break;
+                            }
+                        }
+                        if (closed) {
+                            i += quoteLength;
+                            break;
+                        }
+                    }
+                    i++;
+                }
+                blank(chars, begin, i);
+                continue;
+            }
+            i++;
+        }
+        return new String(chars);
+    }
+
+    private static void blank(char[] chars, int start, int end) {
+        for (int i = start; i < end; i++) {
+            if (chars[i] != '\n' && chars[i] != '\r') {
+                chars[i] = ' ';
+            }
+        }
     }
 
     private void addDetectedEdges(
@@ -121,7 +284,7 @@ public class CodeGraphBuilder {
                 || !lowerText.contains(targetName.toLowerCase(Locale.ROOT))) {
             return;
         }
-        if (containsInheritance(text, targetName, "implements")) {
+        if (isTypeLike(target) && containsInheritance(text, targetName, "implements")) {
             addEdge(
                     source,
                     target,
@@ -129,17 +292,19 @@ public class CodeGraphBuilder {
                     "implements " + targetName,
                     edgesById);
         }
-        if (containsInheritance(text, targetName, "extends")
-                || containsPythonBaseClass(sourceSymbol, targetName)) {
+        if (isTypeLike(target)
+                && (containsInheritance(text, targetName, "extends")
+                        || containsPythonBaseClass(sourceSymbol, targetName))) {
             addEdge(source, target, GraphRelation.EXTENDS, "extends " + targetName, edgesById);
         }
-        if (containsCall(text, targetName)) {
+        boolean observedCall = isCallable(target) && containsCall(text, targetName);
+        if (observedCall) {
             addEdge(source, target, GraphRelation.CALLS, targetName + "(...) call", edgesById);
         }
         if (containsWord(text, targetName)) {
             if (isTypeLike(target)) {
                 addEdge(source, target, GraphRelation.USES, "type usage: " + targetName, edgesById);
-            } else {
+            } else if (!observedCall) {
                 addEdge(
                         source,
                         target,
@@ -156,7 +321,9 @@ public class CodeGraphBuilder {
             Map<String, List<GraphNode>> nodesByName,
             Map<String, GraphEdge> edgesById) {
         for (String importedName : importedNames(text)) {
-            for (GraphNode target : nodesByName.getOrDefault(importedName, List.of())) {
+            for (GraphNode target :
+                    resolveTargets(
+                            source, text, nodesByName.getOrDefault(importedName, List.of()))) {
                 if (!source.equals(target)) {
                     addEdge(
                             source,
