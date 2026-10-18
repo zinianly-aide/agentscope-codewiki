@@ -61,3 +61,8 @@ python3 scripts/minicpm47_codewiki_eval.py \
   --model-url http://127.0.0.1:18086/v1/chat/completions \
   --model minicpm-v47-full --max-cases 3
 ```
+
+## P5 continuation
+
+See [experimental compiler-backed call evidence and evaluation](code-graph-javac-p5.md).
+This API is opt-in, not enabled in the live MCP index.

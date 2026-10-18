@@ -124,6 +124,101 @@ public class CodeGraphBuilder {
      * same-name symbols. Same-file bindings win, then explicit Java imports; unresolved ambiguities
      * remain unlinked rather than inflating impact reports.
      */
+    /**
+     * Experimental compiler-verified overlay for a standalone, compilable Java source set. This is
+     * opt-in; normal build() remains unchanged. Only the selected sources' Java CALLS edges are
+     * replaced, and only when javac returns zero diagnostics of ERROR. javac's symbol table
+     * verifies overload targets but does not prove runtime dispatch.
+     */
+    public CodeGraph buildWithCompilerEvidence(
+            List<CodeSymbol> symbols,
+            java.nio.file.Path root,
+            List<java.nio.file.Path> selectedFiles)
+            throws java.io.IOException {
+        java.nio.file.Path absoluteRoot = root.toRealPath();
+        java.util.Set<String> covered = new LinkedHashSet<>();
+        for (java.nio.file.Path file : selectedFiles) {
+            java.nio.file.Path sourcePath = file.toRealPath();
+            if (!sourcePath.startsWith(absoluteRoot)) {
+                throw new IllegalArgumentException("compiler source outside repository root");
+            }
+            covered.add(absoluteRoot.relativize(sourcePath).toString().replace('\\', '/'));
+        }
+        CodeGraph prior = build(symbols);
+        JavacCallResolver.Result semantic = new JavacCallResolver().resolve(selectedFiles);
+        if (!semantic.complete()) {
+            return prior;
+        }
+        java.util.Map<String, List<GraphNode>> byLocation = new LinkedHashMap<>();
+        for (GraphNode node : prior.getNodes()) {
+            byLocation
+                    .computeIfAbsent(
+                            locationKey(node.getFilePath(), node.getName(), node.getStartLine()),
+                            ignored -> new ArrayList<>())
+                    .add(node);
+        }
+        java.util.Map<String, GraphEdge> retained = new LinkedHashMap<>();
+        java.util.Map<String, GraphNode> nodesById = new LinkedHashMap<>();
+        for (GraphNode node : prior.getNodes()) {
+            nodesById.put(node.getId(), node);
+        }
+        for (GraphEdge edge : prior.getEdges()) {
+            GraphNode source = nodesById.get(edge.getSourceId());
+            if (source == null
+                    || edge.getType() != GraphRelation.CALLS
+                    || !covered.contains(source.getFilePath())) {
+                retained.put(edge.getId(), edge);
+            }
+        }
+        for (JavacCallResolver.Call call : semantic.calls()) {
+            java.nio.file.Path actualCaller = call.callerFile().toRealPath();
+            java.nio.file.Path actualTarget = call.targetFile().toRealPath();
+            if (!actualCaller.startsWith(absoluteRoot) || !actualTarget.startsWith(absoluteRoot)) {
+                continue;
+            }
+            String callerPath = absoluteRoot.relativize(actualCaller).toString().replace('\\', '/');
+            String targetPath = absoluteRoot.relativize(actualTarget).toString().replace('\\', '/');
+            if (!covered.contains(callerPath) || !covered.contains(targetPath)) {
+                continue;
+            }
+            var callers =
+                    byLocation.getOrDefault(
+                            locationKey(callerPath, call.callerName(), call.callerLine()),
+                            List.of());
+            var targets =
+                    byLocation.getOrDefault(
+                            locationKey(targetPath, call.targetName(), call.targetLine()),
+                            List.of());
+            // Name/line collisions (e.g. multiple overloads on one source line)
+            // cannot be represented unambiguously in the current GraphNode schema.
+            if (callers.size() != 1 || targets.size() != 1 || call.callLine() <= 0) {
+                continue;
+            }
+            GraphNode source = callers.get(0);
+            GraphNode target = targets.get(0);
+            GraphEdge edge =
+                    new GraphEdge(
+                            source.getId(),
+                            target.getId(),
+                            GraphRelation.CALLS,
+                            "javac symbol binding at L" + call.callLine(),
+                            "JAVAC",
+                            "COMPILER",
+                            call.callLine());
+            GraphEdge previous = retained.get(edge.getId());
+            if (previous != null && "JAVAC".equals(previous.getOrigin())) {
+                previous.addEvidenceLine(call.callLine());
+            } else {
+                retained.put(edge.getId(), edge);
+            }
+        }
+        return new CodeGraph(prior.getNodes(), new ArrayList<>(retained.values()));
+    }
+
+    private static String locationKey(String filePath, String name, int line) {
+        return filePath + "#" + name + ":" + line;
+    }
+
     private List<GraphNode> resolveTargets(
             GraphNode source, String text, List<GraphNode> candidates) {
         if (isCallable(source) && candidates.stream().anyMatch(source::equals)) {
