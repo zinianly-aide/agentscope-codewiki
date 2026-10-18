@@ -10,6 +10,9 @@ public class GraphEdge {
     private String targetId;
     private GraphRelation type;
     private String evidence;
+    private String origin;
+    private String confidence;
+    private int evidenceLine;
 
     public GraphEdge() {}
 
@@ -19,6 +22,22 @@ public class GraphEdge {
         this.type = type;
         this.evidence = evidence;
         this.id = sourceId + "->" + targetId + ":" + type;
+        this.origin = "HEURISTIC";
+        this.confidence = "LOW";
+    }
+
+    public GraphEdge(
+            String sourceId,
+            String targetId,
+            GraphRelation type,
+            String evidence,
+            String origin,
+            String confidence,
+            int evidenceLine) {
+        this(sourceId, targetId, type, evidence);
+        this.origin = origin;
+        this.confidence = confidence;
+        this.evidenceLine = evidenceLine;
     }
 
     public String getId() {
@@ -59,6 +78,30 @@ public class GraphEdge {
 
     public void setEvidence(String evidence) {
         this.evidence = evidence;
+    }
+
+    public String getOrigin() {
+        return origin;
+    }
+
+    public void setOrigin(String origin) {
+        this.origin = origin;
+    }
+
+    public String getConfidence() {
+        return confidence;
+    }
+
+    public void setConfidence(String confidence) {
+        this.confidence = confidence;
+    }
+
+    public int getEvidenceLine() {
+        return evidenceLine;
+    }
+
+    public void setEvidenceLine(int evidenceLine) {
+        this.evidenceLine = evidenceLine;
     }
 
     @Override

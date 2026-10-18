@@ -10,6 +10,7 @@ import com.agentscope.codewiki.indexer.graph.CodeGraphQueryService;
 import com.agentscope.codewiki.indexer.graph.GraphEdge;
 import com.agentscope.codewiki.indexer.graph.GraphNode;
 import com.agentscope.codewiki.indexer.graph.GraphRelation;
+import com.agentscope.codewiki.parser.CodeReference;
 import com.agentscope.codewiki.parser.CodeSymbol;
 import java.util.List;
 import java.util.Set;
@@ -537,6 +538,117 @@ class CodeGraphBuilderTest {
                                 edge ->
                                         edge.getType() == GraphRelation.EXTENDS
                                                 || edge.getType() == GraphRelation.IMPLEMENTS));
+    }
+
+    @Test
+    void astCallsResolveOnlySameOwnerMethodsAndKeepCallSiteLine() {
+        CodeSymbol caller =
+                symbol(
+                        "dispatch",
+                        "method",
+                        "void dispatch()",
+                        "api/Worker.java",
+                        5,
+                        "void dispatch() { run(); } ");
+        caller.setOwnerType("Worker");
+        caller.setReferences(List.of(new CodeReference("call", "run", null, 8)));
+        CodeSymbol local =
+                symbol("run", "method", "void run()", "api/Worker.java", 20, "void run() {}");
+        local.setOwnerType("Worker");
+        local.setReferences(List.of());
+        CodeSymbol other =
+                symbol("run", "method", "void run()", "remote/WorkerTwo.java", 4, "void run() {}");
+        other.setOwnerType("WorkerTwo");
+        other.setReferences(List.of());
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(caller, local, other));
+        var edges =
+                graph.getEdges().stream()
+                        .filter(
+                                edge ->
+                                        edge.getType() == GraphRelation.CALLS
+                                                && node(graph, edge.getSourceId())
+                                                        .getName()
+                                                        .equals("dispatch"))
+                        .toList();
+        assertEquals(1, edges.size());
+        assertEquals("api/Worker.java", node(graph, edges.get(0).getTargetId()).getFilePath());
+        assertEquals("AST", edges.get(0).getOrigin());
+        assertEquals("HIGH", edges.get(0).getConfidence());
+        assertEquals(8, edges.get(0).getEvidenceLine());
+    }
+
+    @Test
+    void astQualifiedCallResolvesFullyQualifiedImportedJavaOwner() {
+        CodeSymbol caller =
+                symbol(
+                        "dispatch",
+                        "method",
+                        "void dispatch()",
+                        "app/src/main/java/app/Controller.java",
+                        4,
+                        "void dispatch() { BillingService.charge(); } ");
+        caller.setOwnerType("Controller");
+        caller.setImports(List.of("import com.billing.BillingService;"));
+        caller.setReferences(List.of(new CodeReference("call", "charge", "BillingService", 5)));
+        CodeSymbol billed =
+                symbol(
+                        "charge",
+                        "method",
+                        "void charge()",
+                        "billing/src/main/java/com/billing/BillingService.java",
+                        8,
+                        "void charge() {}");
+        billed.setOwnerType("BillingService");
+        billed.setReferences(List.of());
+        CodeSymbol wrong =
+                symbol(
+                        "charge",
+                        "method",
+                        "void charge()",
+                        "other/src/main/java/com/other/BillingService.java",
+                        8,
+                        "void charge() {}");
+        wrong.setOwnerType("BillingService");
+        wrong.setReferences(List.of());
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(caller, billed, wrong));
+        var calls =
+                graph.getEdges().stream()
+                        .filter(edge -> edge.getType() == GraphRelation.CALLS)
+                        .toList();
+        assertEquals(1, calls.size());
+        assertEquals(billed.getFilePath(), node(graph, calls.get(0).getTargetId()).getFilePath());
+    }
+
+    @Test
+    void astUnresolvedReceiverAndEmptyCallSetMustNotGuessLinks() {
+        CodeSymbol caller =
+                symbol(
+                        "dispatch",
+                        "method",
+                        "void dispatch()",
+                        "app/src/Controller.java",
+                        1,
+                        "void dispatch() { helper.charge(); } ");
+        caller.setOwnerType("Controller");
+        caller.setReferences(List.of(new CodeReference("call", "charge", "helper", 1)));
+        CodeSymbol target =
+                symbol(
+                        "charge",
+                        "method",
+                        "void charge()",
+                        "billing/src/BillingService.java",
+                        1,
+                        "void charge() {}");
+        target.setOwnerType("BillingService");
+        target.setReferences(List.of());
+        CodeGraph graph = new CodeGraphBuilder().build(List.of(caller, target));
+        assertTrue(
+                graph.getEdges().stream().noneMatch(edge -> edge.getType() == GraphRelation.CALLS));
+        caller.setReferences(List.of());
+        assertTrue(
+                new CodeGraphBuilder()
+                        .build(List.of(caller, target)).getEdges().stream()
+                                .noneMatch(edge -> edge.getType() == GraphRelation.CALLS));
     }
 
     private void assertEdge(

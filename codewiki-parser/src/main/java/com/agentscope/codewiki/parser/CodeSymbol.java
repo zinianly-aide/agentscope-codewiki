@@ -16,6 +16,10 @@ public class CodeSymbol {
     private int endLine;
     private String sourceCode;
     private String filePath;
+    private String ownerType;
+    // Null means parser predates AST call-site support; empty means parsed with no calls.
+    private java.util.List<CodeReference> references;
+    private java.util.List<String> imports;
 
     public CodeSymbol() {}
 
@@ -73,6 +77,30 @@ public class CodeSymbol {
 
     public void setFilePath(String filePath) {
         this.filePath = filePath;
+    }
+
+    public String getOwnerType() {
+        return ownerType;
+    }
+
+    public void setOwnerType(String ownerType) {
+        this.ownerType = ownerType;
+    }
+
+    public java.util.List<CodeReference> getReferences() {
+        return references;
+    }
+
+    public void setReferences(java.util.List<CodeReference> references) {
+        this.references = references;
+    }
+
+    public java.util.List<String> getImports() {
+        return imports;
+    }
+
+    public void setImports(java.util.List<String> imports) {
+        this.imports = imports;
     }
 
     @Override

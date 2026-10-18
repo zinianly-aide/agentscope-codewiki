@@ -144,7 +144,10 @@ public class ImpactAnalyzer {
                                     ImpactNode.fromGraphNode(target),
                                     ImpactNode.fromGraphNode(source),
                                     edge.getType().name(),
-                                    nextDepth));
+                                    nextDepth,
+                                    edge.getOrigin(),
+                                    edge.getConfidence(),
+                                    edge.getEvidenceLine()));
                 }
                 Integer previousBest = bestDepth.get(source.getId());
                 if (previousBest == null || nextDepth < previousBest) {

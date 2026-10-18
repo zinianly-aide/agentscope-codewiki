@@ -41,7 +41,47 @@ const TYPE_MAP = {
   arrow_def: "arrow_function",
 };
 
-function extractSymbols(tree, source, queryStr, langObj, filePath) {
+function ownerTypeOf(node, source) {
+  let parent = node.parent;
+  while (parent) {
+    if (["class_declaration", "interface_declaration", "enum_declaration"].includes(parent.type)) {
+      const name = parent.childForFieldName?.("name");
+      return name ? source.substring(name.startIndex, name.endIndex) : null;
+    }
+    parent = parent.parent;
+  }
+  return null;
+}
+
+function javaCalls(node, source) {
+  const calls = [];
+  const visit = current => {
+    if (current.type === "method_invocation") {
+      const name = current.childForFieldName("name");
+      const receiver = current.childForFieldName("object");
+      if (name) {
+        const value = source.substring(name.startIndex, name.endIndex);
+        const objectText = receiver && source.substring(receiver.startIndex, receiver.endIndex);
+        calls.push({kind: "call", name: value,
+          receiver: objectText && objectText.length < 128 ? objectText : null,
+          line: current.startPosition.row + 1});
+      }
+    }
+    // Calls in a nested class/method belong to that nested symbol, not its parent.
+    for (const child of current.namedChildren) {
+      if (child !== node && ["method_declaration", "constructor_declaration",
+          "class_declaration", "interface_declaration"].includes(child.type)) continue;
+      visit(child);
+    }
+  };
+  visit(node);
+  return calls;
+}
+
+function extractSymbols(tree, source, queryStr, langObj, filePath, lang) {
+  const imports = lang === "java" ? tree.rootNode.namedChildren
+    .filter(n => n.type === "import_declaration")
+    .map(n => source.substring(n.startIndex, n.endIndex).trim()) : [];
   const query = new Parser.Query(langObj, queryStr);
   const matches = query.matches(tree.rootNode);
   const symbols = [];
@@ -75,6 +115,10 @@ function extractSymbols(tree, source, queryStr, langObj, filePath) {
       endLine: node.endPosition.row + 1,
       sourceCode: source.substring(node.startIndex, node.endIndex),
       filePath,
+      ownerType: lang === "java" ? ownerTypeOf(node, source) : null,
+      imports: lang === "java" ? imports : null,
+      references: lang === "java" ? (type === "method" || type === "constructor"
+        ? javaCalls(node, source) : []) : null,
     });
   }
 
@@ -103,7 +147,7 @@ async function batchMain() {
     }
     const {parser, langObj} = parsers.get(lang);
     const source = readFileSync(filePath, "utf8");
-    symbols.push(...extractSymbols(parser.parse(source), source, QUERIES[lang], langObj, filePath));
+    symbols.push(...extractSymbols(parser.parse(source), source, QUERIES[lang], langObj, filePath, lang));
   }
   console.log(JSON.stringify(symbols));
 }
@@ -136,7 +180,7 @@ async function main() {
 
   const source = readFileSync(filePath, "utf-8");
   const tree = parser.parse(source);
-  const symbols = extractSymbols(tree, source, QUERIES[lang], langObj, filePath);
+  const symbols = extractSymbols(tree, source, QUERIES[lang], langObj, filePath, lang);
 
   console.log(JSON.stringify(symbols, null, 2));
 }

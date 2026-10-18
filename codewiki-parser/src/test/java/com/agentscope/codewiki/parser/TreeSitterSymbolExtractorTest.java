@@ -59,6 +59,43 @@ class TreeSitterSymbolExtractorTest {
     }
 
     @Test
+    void shouldExtractJavaAstCallSitesAndOwningClass() throws Exception {
+        Path file = Files.createTempFile("codewiki-java-ast-", ".java");
+        try {
+            Files.writeString(
+                    file,
+                    "import org.billing.BillingService;\nclass OrderController {\n"
+                            + "  void submit() { process(); BillingService.charge(); }\n"
+                            + "  void process() {}\n"
+                            + "  String example = \"fake()\";\n"
+                            + "}\n");
+            List<CodeSymbol> symbols = extractor.extract(file);
+            CodeSymbol method =
+                    symbols.stream()
+                            .filter(s -> "submit".equals(s.getName()))
+                            .findFirst()
+                            .orElseThrow();
+            assertEquals("OrderController", method.getOwnerType());
+            assertNotNull(method.getReferences());
+            assertEquals(2, method.getReferences().size());
+            assertEquals("process", method.getReferences().get(0).name());
+            assertNull(method.getReferences().get(0).receiver());
+            assertEquals("charge", method.getReferences().get(1).name());
+            assertEquals("BillingService", method.getReferences().get(1).receiver());
+            assertEquals(3, method.getReferences().get(1).line());
+            assertTrue(method.getImports().contains("import org.billing.BillingService;"));
+            CodeSymbol clazz =
+                    symbols.stream()
+                            .filter(s -> "OrderController".equals(s.getName()))
+                            .findFirst()
+                            .orElseThrow();
+            assertTrue(clazz.getReferences().isEmpty());
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    @Test
     void shouldExtractJavaSymbols() throws Exception {
         Path file = samplePath("Sample.java");
         List<CodeSymbol> symbols = extractor.extract(file);

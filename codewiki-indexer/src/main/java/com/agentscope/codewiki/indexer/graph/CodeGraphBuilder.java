@@ -1,5 +1,6 @@
 package com.agentscope.codewiki.indexer.graph;
 
+import com.agentscope.codewiki.parser.CodeReference;
 import com.agentscope.codewiki.parser.CodeSymbol;
 import com.agentscope.codewiki.parser.RepositoryScanner;
 import com.agentscope.codewiki.parser.TreeSitterSymbolExtractor;
@@ -54,9 +55,9 @@ public class CodeGraphBuilder {
                 List<CodeSymbol> extracted = extractor.extract(file);
                 String relativePath = repositoryRoot.relativize(file).toString().replace('\\', '/');
                 for (CodeSymbol symbol : extracted) {
-                    if (symbol.getFilePath() == null || symbol.getFilePath().isBlank()) {
-                        symbol.setFilePath(relativePath);
-                    }
+                    // The bridge emits absolute filesystem paths. Graph IDs and evidence
+                    // must remain repository-relative across machines and cache restarts.
+                    symbol.setFilePath(relativePath);
                     symbols.add(symbol);
                 }
             }
@@ -98,13 +99,22 @@ public class CodeGraphBuilder {
                 for (GraphNode target :
                         resolveTargets(source, text, namesLower.getOrDefault(token, List.of()))) {
                     if (!source.equals(target) && visited.add(target.getId())) {
-                        addDetectedEdges(source, target, text, lowerText, symbol, edgesById);
+                        addDetectedEdges(
+                                source,
+                                target,
+                                text,
+                                lowerText,
+                                symbol,
+                                "java".equals(languageOf(source.getFilePath()))
+                                        && symbol.getReferences() != null,
+                                edgesById);
                     }
                 }
             }
             addImportEdges(source, text, nodesByName, edgesById);
         }
 
+        addAstCallEdges(symbols, nodesById, nodesByName, edgesById);
         return new CodeGraph(
                 new ArrayList<>(nodesById.values()), new ArrayList<>(edgesById.values()));
     }
@@ -271,12 +281,111 @@ public class CodeGraphBuilder {
         }
     }
 
+    /**
+     * Emit only resolved Java AST call edges. Unbound instance receivers are deliberately omitted.
+     */
+    private void addAstCallEdges(
+            List<CodeSymbol> symbols,
+            Map<String, GraphNode> nodesById,
+            Map<String, List<GraphNode>> nodesByName,
+            Map<String, GraphEdge> edgesById) {
+        Map<String, CodeSymbol> symbolsById = new LinkedHashMap<>();
+        for (CodeSymbol symbol : sortedSymbols(symbols)) {
+            symbolsById.putIfAbsent(GraphNode.stableId(symbol), symbol);
+        }
+        for (CodeSymbol caller : sortedSymbols(symbols)) {
+            if (caller.getReferences() == null
+                    || !"java".equals(languageOf(caller.getFilePath()))) {
+                continue;
+            }
+            GraphNode source = nodesById.get(GraphNode.stableId(caller));
+            if (source == null || !isCallable(source)) {
+                continue;
+            }
+            for (CodeReference reference : caller.getReferences()) {
+                if (reference == null
+                        || !"call".equals(reference.kind())
+                        || reference.name() == null
+                        || reference.name().isBlank()) {
+                    continue;
+                }
+                List<GraphNode> targets =
+                        nodesByName.getOrDefault(reference.name(), List.of()).stream()
+                                .filter(this::isCallable)
+                                .filter(node -> !node.equals(source))
+                                .filter(node -> "java".equals(languageOf(node.getFilePath())))
+                                .filter(
+                                        node ->
+                                                astReceiverMatches(
+                                                        caller,
+                                                        reference,
+                                                        symbolsById.get(node.getId()),
+                                                        node))
+                                .toList();
+                if (targets.size() == 1) {
+                    GraphNode target = targets.get(0);
+                    GraphEdge edge =
+                            new GraphEdge(
+                                    source.getId(),
+                                    target.getId(),
+                                    GraphRelation.CALLS,
+                                    "AST invocation: "
+                                            + reference.name()
+                                            + "(...) at L"
+                                            + reference.line(),
+                                    "AST",
+                                    "HIGH",
+                                    reference.line());
+                    edgesById.put(edge.getId(), edge);
+                }
+            }
+        }
+    }
+
+    private boolean astReceiverMatches(
+            CodeSymbol caller, CodeReference reference, CodeSymbol callee, GraphNode target) {
+        if (callee == null || callee.getOwnerType() == null || caller.getOwnerType() == null) {
+            return false;
+        }
+        String receiver = reference.receiver();
+        if (receiver == null || "this".equals(receiver)) {
+            return target.getFilePath().equals(caller.getFilePath())
+                    && caller.getOwnerType().equals(callee.getOwnerType());
+        }
+        // Only static-style ClassName.method() with a provably identified owner.
+        // Variable.method() would require scope-aware type binding and is omitted.
+        if (!receiver.equals(callee.getOwnerType())) {
+            return false;
+        }
+        if (target.getFilePath().equals(caller.getFilePath())) {
+            return true;
+        }
+        if (caller.getImports() == null) {
+            return false;
+        }
+        return caller.getImports().stream()
+                .anyMatch(
+                        importStatement -> {
+                            String imported =
+                                    importStatement
+                                            .trim()
+                                            .replaceFirst("^import\\s+(?:static\\s+)?", "")
+                                            .replace(";", "");
+                            if (!imported.endsWith("." + receiver)) {
+                                return false;
+                            }
+                            return ("/" + target.getFilePath().replace('\\', '/'))
+                                    .endsWith("/" + imported.replace('.', '/') + ".java");
+                        });
+    }
+
     private void addDetectedEdges(
             GraphNode source,
             GraphNode target,
             String text,
             String lowerText,
             CodeSymbol sourceSymbol,
+            boolean astManaged,
             Map<String, GraphEdge> edgesById) {
         String targetName = target.getName();
         if (targetName == null
@@ -297,14 +406,14 @@ public class CodeGraphBuilder {
                         || containsPythonBaseClass(sourceSymbol, targetName))) {
             addEdge(source, target, GraphRelation.EXTENDS, "extends " + targetName, edgesById);
         }
-        boolean observedCall = isCallable(target) && containsCall(text, targetName);
+        boolean observedCall = !astManaged && isCallable(target) && containsCall(text, targetName);
         if (observedCall) {
             addEdge(source, target, GraphRelation.CALLS, targetName + "(...) call", edgesById);
         }
         if (containsWord(text, targetName)) {
             if (isTypeLike(target)) {
                 addEdge(source, target, GraphRelation.USES, "type usage: " + targetName, edgesById);
-            } else if (!observedCall) {
+            } else if (!observedCall && !astManaged) {
                 addEdge(
                         source,
                         target,

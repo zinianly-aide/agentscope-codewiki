@@ -32,7 +32,7 @@ import java.util.Map;
  * changes. Optional persisted symbol cache is explicitly enabled by path.
  */
 final class RepositorySnapshotIndex {
-    private static final int FORMAT_VERSION = 1;
+    private static final int FORMAT_VERSION = 2;
     private static final int MAX_SYMBOLS = 3500;
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final Path root;

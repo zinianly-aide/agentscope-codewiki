@@ -57,3 +57,9 @@ not a production-accuracy metric.
 Do not interpret an automatically derived risk level as a proven dependency chain.
 A future high-confidence graph should store semantic receiver/type resolution and
 confidence/evidence per edge, with source-anchored AST facts instead of regex guesses.
+
+## Next layer: AST facts
+
+P3 adds source-located AST Java call sites and `origin/confidence/evidenceLine`
+provenance, while keeping legacy heuristics for symbols without AST facts.
+Read [AST binding and controlled evaluation](code-graph-ast-p3.md).
